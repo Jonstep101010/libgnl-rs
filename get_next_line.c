@@ -6,7 +6,7 @@
 /*   By: jschwabe <jschwabe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/04/18 14:25:50 by jschwabe          #+#    #+#             */
-/*   Updated: 2024/05/24 19:22:45 by jschwabe         ###   ########.fr       */
+/*   Updated: 2024/05/24 19:30:07 by jschwabe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -70,7 +70,7 @@ static void	clean_buffer(char *buf)
 		&& buf[nl_index] != '\n' && buf[nl_index] != '\0')
 		nl_index++;
 	if (buf[nl_index] != '\n')
-		buf[nl_index] = 0;
+		buf[nl_index] = '\0';
 	else
 		nl_index++;
 	ft_memcpy(buf, (buf + nl_index), (BUFFER_SIZE - nl_index) + 1);
