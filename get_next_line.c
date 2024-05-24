@@ -6,7 +6,7 @@
 /*   By: jschwabe <jschwabe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/04/18 14:25:50 by jschwabe          #+#    #+#             */
-/*   Updated: 2024/02/19 22:43:44 by jschwabe         ###   ########.fr       */
+/*   Updated: 2024/05/24 17:06:40 by jschwabe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -66,7 +66,10 @@ static void	clean_buffer(char *buf)
 {
 	int	nl_index;
 
-	nl_index = index_of(buf, '\n', INT_MAX);
+	nl_index = 0;
+	while (nl_index < BUFFER_SIZE
+		&& buf[nl_index] != '\n' && buf[nl_index] != '\0')
+		nl_index++;
 	if (buf[nl_index] != '\n')
 		buf[nl_index] = 0;
 	else
@@ -79,26 +82,14 @@ static void	read_success(char *tmp, char **line, int *counter)
 	int	i;
 
 	*counter -= BUFFER_SIZE;
-	i = index_of(tmp, '\n', BUFFER_SIZE);
+	i = 0;
+	while (i < BUFFER_SIZE && tmp[i] != '\n' && tmp[i] != '\0')
+		i++;
 	ft_memcpy((*line + *counter), tmp, i);
-	if (tmp[i] == '\n')
+	if (line && *line && tmp && tmp[i] == '\n')
 		(*line)[*counter + i] = '\n';
 }
 
-/**
- * @brief Reads a line from a file descriptor.
- *
- * This function reads a line from the specified file
- * descriptor and stores it in the line parameter.
- *
- * @param buf Buffer to store temporary data read from the file descriptor.
- * @param fd File descriptor to read from.
- * @param counter Pointer to an integer representing the total
- * number of characters read so far.
- * @param line Pointer to a string to store the read line.
- * @return The read line if successful, or NULL if an error occurs
- * or the end of file is reached.
- */
 static char	*read_line(char *buf, int fd, int *counter, char **line)
 {
 	char	tmp[BUFFER_SIZE + 1];
@@ -110,7 +101,9 @@ static char	*read_line(char *buf, int fd, int *counter, char **line)
 		return (ft_memset(buf, 0, BUFFER_SIZE));
 	if (rd > 0)
 		*counter += BUFFER_SIZE;
-	i = index_of(tmp, '\n', BUFFER_SIZE);
+	i = 0;
+	while (i < BUFFER_SIZE && tmp[i] != '\n' && tmp[i] != '\0')
+		i++;
 	if (tmp[i] == '\n' || (rd == 0 && *counter != 0))
 	{
 		*line = (char *) ft_calloc(sizeof(char), *counter + 1);

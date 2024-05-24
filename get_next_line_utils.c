@@ -6,7 +6,7 @@
 /*   By: jschwabe <jschwabe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/04/18 14:26:30 by jschwabe          #+#    #+#             */
-/*   Updated: 2024/02/19 22:41:45 by jschwabe         ###   ########.fr       */
+/*   Updated: 2024/05/24 17:06:49 by jschwabe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -72,12 +72,12 @@ size_t	ft_strlcpy(char *dst, const char *src, size_t size)
 }
 #endif // LIBFT_H
 
-int	index_of(char *str, char c, int max_len)
-{
-	int	i;
+// int	index_of(char *str, char c, int max_len)
+// {
+// 	int	i;
 
-	i = 0;
-	while (i < max_len && str[i] != c && str[i] != '\0')
-		i++;
-	return (i);
-}
+// 	i = 0;
+// 	while (i < max_len && str[i] != c && str[i] != '\0')
+// 		i++;
+// 	return (i);
+// }

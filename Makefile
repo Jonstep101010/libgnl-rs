@@ -7,7 +7,7 @@ CC = clang
 CFLAGS = -Wall -Wextra -Werror -I../libft
 
 all: $(NAME)
-debug: CFLAGS += -g3
+debug: CFLAGS += -g3 -fno-omit-frame-pointer -fsanitize=address,undefined
 debug: re
 
 LIBFT = ../libft/libft.a
