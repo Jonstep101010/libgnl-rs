@@ -6,7 +6,7 @@
 /*   By: jschwabe <jschwabe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/04/18 14:25:50 by jschwabe          #+#    #+#             */
-/*   Updated: 2024/05/24 17:06:40 by jschwabe         ###   ########.fr       */
+/*   Updated: 2024/05/24 19:22:45 by jschwabe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -22,8 +22,8 @@ static char	*check_free(char *line)
 		return (NULL);
 	i = 0;
 	while (line[i] != '\0')
-		++i;
-	tmp = (char *) ft_calloc(sizeof(char), i + 1);
+		i++;
+	tmp = ft_calloc(sizeof(char), i + 1);
 	if (!tmp)
 		return (free(line), NULL);
 	ft_memcpy(tmp, line, i);
@@ -43,19 +43,18 @@ char	*get_next_line(int fd)
 	if (fd < 0 || BUFFER_SIZE < 1)
 		return (NULL);
 	line = NULL;
-	counter = 0;
-	while (counter <= BUFFER_SIZE && buf[counter])
+	counter = -1;
+	while (++counter < BUFFER_SIZE && buf[counter])
 	{
 		if (buf[counter] == '\n')
 		{
-			line = (char *) ft_calloc(sizeof(char), BUFFER_SIZE + 1);
+			line = ft_calloc(sizeof(char), BUFFER_SIZE + 1);
 			if (!line)
 				return (NULL);
 			ft_memcpy(line, buf, counter + 1);
 			clean_buffer(buf);
 			return (check_free(line));
 		}
-		counter++;
 	}
 	if (buf[counter] != '\n')
 		read_line(buf, fd, &counter, &line);
@@ -67,7 +66,7 @@ static void	clean_buffer(char *buf)
 	int	nl_index;
 
 	nl_index = 0;
-	while (nl_index < BUFFER_SIZE
+	while (nl_index < INT_MAX
 		&& buf[nl_index] != '\n' && buf[nl_index] != '\0')
 		nl_index++;
 	if (buf[nl_index] != '\n')
@@ -86,17 +85,16 @@ static void	read_success(char *tmp, char **line, int *counter)
 	while (i < BUFFER_SIZE && tmp[i] != '\n' && tmp[i] != '\0')
 		i++;
 	ft_memcpy((*line + *counter), tmp, i);
-	if (line && *line && tmp && tmp[i] == '\n')
+	if (tmp[i] == '\n')
 		(*line)[*counter + i] = '\n';
 }
 
 static char	*read_line(char *buf, int fd, int *counter, char **line)
 {
-	char	tmp[BUFFER_SIZE + 1];
-	int		rd;
-	int		i;
+	char		tmp[BUFFER_SIZE + 1];
+	const int	rd = read(fd, ft_memset(tmp, 0, BUFFER_SIZE), BUFFER_SIZE);
+	int			i;
 
-	rd = read(fd, ft_memset(tmp, 0, BUFFER_SIZE), BUFFER_SIZE);
 	if (rd == -1)
 		return (ft_memset(buf, 0, BUFFER_SIZE));
 	if (rd > 0)
@@ -106,7 +104,7 @@ static char	*read_line(char *buf, int fd, int *counter, char **line)
 		i++;
 	if (tmp[i] == '\n' || (rd == 0 && *counter != 0))
 	{
-		*line = (char *) ft_calloc(sizeof(char), *counter + 1);
+		*line = ft_calloc(sizeof(char), *counter + 1);
 		if (!*line)
 			return (NULL);
 		ft_strlcpy(*line, buf, *counter + 1);
