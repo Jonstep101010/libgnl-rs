@@ -6,7 +6,7 @@
 /*   By: jschwabe <jschwabe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/04/18 14:25:50 by jschwabe          #+#    #+#             */
-/*   Updated: 2024/05/28 23:08:07 by jschwabe         ###   ########.fr       */
+/*   Updated: 2024/05/29 00:22:15 by jschwabe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -28,12 +28,14 @@ static char	*check_free(char *buf, int buf_idx, char *line, bool is_buf)
 		buf_nl_idx = index_of(buf, '\n', INT_MAX);
 		ft_memcpy(line, buf, buf_idx + 1);
 		if (buf[buf_nl_idx] != '\n')
-			buf[buf_nl_idx] = '\0';
+			buf[buf_nl_idx] = 0;
 		else
 			buf_nl_idx++;
 		ft_memcpy(buf, buf + buf_nl_idx, SIZE - buf_nl_idx + 1);
 	}
-	gnl_idx = index_of(line, '\0', INT_MAX);
+	gnl_idx = index_of(line, '\n', INT_MAX);
+	if (line[gnl_idx] == '\n')
+		gnl_idx++;
 	ret = ft_calloc(sizeof(char), gnl_idx + 1);
 	if (!ret)
 		return (free(line), NULL);
@@ -67,7 +69,7 @@ char	*get_next_line(int fd)
 	return (check_free(buf, buf_idx, line, false));
 }
 
-static bool	iter_line(char **line, char *buf, char *tmp, int buf_idx)
+static inline bool	iter_line(char **line, char *buf, char *tmp, int buf_idx)
 {
 	int	buf_nl_idx;
 
@@ -76,9 +78,9 @@ static bool	iter_line(char **line, char *buf, char *tmp, int buf_idx)
 		return (false);
 	ft_strlcpy(*line, buf, buf_idx + 1);
 	ft_memcpy(buf, tmp, SIZE);
-	buf_nl_idx = index_of(buf, '\n', INT_MAX);
+	buf_nl_idx = index_of(buf, '\n', SIZE + 1);
 	if (buf[buf_nl_idx] != '\n')
-		buf[buf_nl_idx] = '\0';
+		buf[buf_nl_idx] = 0;
 	else
 		buf_nl_idx++;
 	ft_memcpy(buf, buf + buf_nl_idx, SIZE - buf_nl_idx + 1);
