@@ -6,7 +6,7 @@
 /*   By: jschwabe <jschwabe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/04/18 14:25:50 by jschwabe          #+#    #+#             */
-/*   Updated: 2024/05/28 20:19:06 by jschwabe         ###   ########.fr       */
+/*   Updated: 2024/05/28 20:36:11 by jschwabe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,31 +16,31 @@
 static char	*read_line(char *buf, int fd, int buf_idx, char **line);
 int			index_of(char *str, char c, int max_len);
 
-static char	*check_free(char *line)
+static char	*check_free(char *buf, int buf_idx, char *line, bool is_buf)
 {
-	char		*tmp;
-	const int	i = index_of(line, '\0', INT_MAX);
+	int		nl_index;
+	char	*tmp;
+	int		i;
 
 	if (!line)
 		return (NULL);
+	if (is_buf)
+	{
+		nl_index = index_of(buf, '\n', INT_MAX);
+		ft_memcpy(line, buf, buf_idx + 1);
+		if (buf[nl_index] != '\n')
+			buf[nl_index] = '\0';
+		else
+			nl_index++;
+		ft_memcpy(buf, buf + nl_index, SIZE - nl_index + 1);
+	}
+	i = index_of(line, '\0', INT_MAX);
 	tmp = ft_calloc(sizeof(char), i + 1);
 	if (!tmp)
 		return (free(line), NULL);
 	ft_memcpy(tmp, line, i);
 	free(line);
 	return (tmp);
-}
-
-static char	*current_line(char *buf, int buf_idx, char *line)
-{
-	ft_memcpy(line, buf, buf_idx + 1);
-	int	nl_index = index_of(buf, '\n', INT_MAX);
-	if (buf[nl_index] != '\n')
-		buf[nl_index] = '\0';
-	else
-		nl_index++;
-	ft_memcpy(buf, buf + nl_index, SIZE - nl_index + 1);
-	return (line);
 }
 
 char	*get_next_line(int fd)
@@ -60,12 +60,12 @@ char	*get_next_line(int fd)
 			line = ft_calloc(sizeof(char), SIZE + 1);
 			if (!line)
 				return (NULL);
-			return (check_free(current_line(buf, buf_idx, line)));
+			return (check_free(buf, buf_idx, line, true));
 		}
 	}
 	if (buf[buf_idx] != '\n')
 		read_line(buf, fd, buf_idx, &line);
-	return (check_free(line));
+	return (check_free(buf, buf_idx, line, false));
 }
 
 static char	*read_line(char *buf, int fd, int buf_idx, char **line)
