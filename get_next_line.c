@@ -6,41 +6,40 @@
 /*   By: jschwabe <jschwabe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/04/18 14:25:50 by jschwabe          #+#    #+#             */
-/*   Updated: 2024/05/28 20:36:11 by jschwabe         ###   ########.fr       */
+/*   Updated: 2024/05/28 23:08:07 by jschwabe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "get_next_line.h"
 #include <limits.h>
 
-static char	*read_line(char *buf, int fd, int buf_idx, char **line);
-int			index_of(char *str, char c, int max_len);
+static char	*read_line(char *buf, int fd, int *buf_idx, char **line);
 
 static char	*check_free(char *buf, int buf_idx, char *line, bool is_buf)
 {
-	int		nl_index;
-	char	*tmp;
-	int		i;
+	int		buf_nl_idx;
+	char	*ret;
+	int		gnl_idx;
 
 	if (!line)
 		return (NULL);
 	if (is_buf)
 	{
-		nl_index = index_of(buf, '\n', INT_MAX);
+		buf_nl_idx = index_of(buf, '\n', INT_MAX);
 		ft_memcpy(line, buf, buf_idx + 1);
-		if (buf[nl_index] != '\n')
-			buf[nl_index] = '\0';
+		if (buf[buf_nl_idx] != '\n')
+			buf[buf_nl_idx] = '\0';
 		else
-			nl_index++;
-		ft_memcpy(buf, buf + nl_index, SIZE - nl_index + 1);
+			buf_nl_idx++;
+		ft_memcpy(buf, buf + buf_nl_idx, SIZE - buf_nl_idx + 1);
 	}
-	i = index_of(line, '\0', INT_MAX);
-	tmp = ft_calloc(sizeof(char), i + 1);
-	if (!tmp)
+	gnl_idx = index_of(line, '\0', INT_MAX);
+	ret = ft_calloc(sizeof(char), gnl_idx + 1);
+	if (!ret)
 		return (free(line), NULL);
-	ft_memcpy(tmp, line, i);
+	ft_memcpy(ret, line, gnl_idx);
 	free(line);
-	return (tmp);
+	return (ret);
 }
 
 char	*get_next_line(int fd)
@@ -64,48 +63,52 @@ char	*get_next_line(int fd)
 		}
 	}
 	if (buf[buf_idx] != '\n')
-		read_line(buf, fd, buf_idx, &line);
+		read_line(buf, fd, &buf_idx, &line);
 	return (check_free(buf, buf_idx, line, false));
 }
 
-static char	*read_line(char *buf, int fd, int buf_idx, char **line)
+static bool	iter_line(char **line, char *buf, char *tmp, int buf_idx)
+{
+	int	buf_nl_idx;
+
+	*line = ft_calloc(sizeof(char), buf_idx + 1);
+	if (!*line)
+		return (false);
+	ft_strlcpy(*line, buf, buf_idx + 1);
+	ft_memcpy(buf, tmp, SIZE);
+	buf_nl_idx = index_of(buf, '\n', INT_MAX);
+	if (buf[buf_nl_idx] != '\n')
+		buf[buf_nl_idx] = '\0';
+	else
+		buf_nl_idx++;
+	ft_memcpy(buf, buf + buf_nl_idx, SIZE - buf_nl_idx + 1);
+	return (true);
+}
+
+static char	*read_line(char *buf, int fd, int *buf_idx, char **line)
 {
 	char		tmp[SIZE + 1];
 	const int	rd = read(fd, ft_memset(tmp, 0, SIZE), SIZE);
-	int			i;
+	int			tmp_nl_idx;
 
 	if (rd == -1)
 		return (ft_memset(buf, 0, SIZE));
 	if (rd > 0)
-		buf_idx += SIZE;
-	i = 0;
-	while (i < SIZE && tmp[i] != '\n' && tmp[i] != '\0')
-		i++;
-	if (tmp[i] == '\n' || (rd == 0 && buf_idx != 0))
-	{
-		*line = ft_calloc(sizeof(char), buf_idx + 1);
-		if (!*line)
-			return (NULL);
-		ft_strlcpy(*line, buf, buf_idx + 1);
-		ft_memcpy(buf, tmp, SIZE);
-		int	nl_index = index_of(buf, '\n', INT_MAX);
-		if (buf[nl_index] != '\n')
-			buf[nl_index] = '\0';
-		else
-			nl_index++;
-		ft_memcpy(buf, buf + nl_index, SIZE - nl_index + 1);
-	}
-	if (tmp[i] != '\n' && rd != 0 && !read_line(buf, fd, buf_idx, line))
+		*buf_idx += SIZE;
+	tmp_nl_idx = index_of(tmp, '\n', SIZE);
+	if ((tmp[tmp_nl_idx] == '\n' || (rd == 0 && *buf_idx != 0))
+		&& !iter_line(line, buf, tmp, *buf_idx))
 		return (NULL);
-	else if (rd > 0)
+	if (tmp[tmp_nl_idx] != '\n' && rd != 0
+		&& !read_line(buf, fd, buf_idx, line))
+		return (NULL);
+	if (rd > 0 && *buf_idx != 0)
 	{
-		buf_idx -= SIZE;
-		i = 0;
-		while (i < SIZE && tmp[i] != '\n' && tmp[i] != '\0')
-			i++;
-		ft_memcpy(*line + buf_idx, tmp, i);
-		if (tmp[i] == '\n')
-			(*line)[buf_idx + i] = '\n';
+		*buf_idx -= SIZE;
+		tmp_nl_idx = index_of(tmp, '\n', SIZE);
+		ft_memcpy(*line + *buf_idx, tmp, tmp_nl_idx);
+		if (tmp[tmp_nl_idx] == '\n')
+			(*line)[*buf_idx + tmp_nl_idx] = '\n';
 	}
 	return (*line);
 }

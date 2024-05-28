@@ -6,7 +6,7 @@
 /*   By: jschwabe <jschwabe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/04/18 14:26:18 by jschwabe          #+#    #+#             */
-/*   Updated: 2024/05/28 20:06:39 by jschwabe         ###   ########.fr       */
+/*   Updated: 2024/05/28 23:11:57 by jschwabe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -40,6 +40,7 @@ void		*ft_calloc(size_t nitems, size_t size);
 size_t		ft_strlcpy(char *dst, const char *src, size_t size);
 # endif
 
+int			index_of(char *str, char c, int max_len);
 char		*get_next_line(int fd);
 
 #endif
