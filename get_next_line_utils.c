@@ -6,7 +6,7 @@
 /*   By: jschwabe <jschwabe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/04/18 14:26:30 by jschwabe          #+#    #+#             */
-/*   Updated: 2024/05/24 19:39:02 by jschwabe         ###   ########.fr       */
+/*   Updated: 2024/02/19 22:41:45 by jschwabe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -77,8 +77,6 @@ int	index_of(char *str, char c, int max_len)
 	int	i;
 
 	i = 0;
-	if (!str)
-		return (-1);
 	while (i < max_len && str[i] != c && str[i] != '\0')
 		i++;
 	return (i);
