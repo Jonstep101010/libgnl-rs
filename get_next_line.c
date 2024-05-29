@@ -6,123 +6,111 @@
 /*   By: jschwabe <jschwabe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/04/18 14:25:50 by jschwabe          #+#    #+#             */
-/*   Updated: 2024/02/19 22:43:44 by jschwabe         ###   ########.fr       */
+/*   Updated: 2024/05/29 00:22:15 by jschwabe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "get_next_line.h"
 #include <limits.h>
 
-static char	*check_free(char *line)
+static char	*read_line(char *buf, int fd, int *buf_idx, char **line);
+
+static char	*check_free(char *buf, int buf_idx, char *line, bool is_buf)
 {
-	char	*tmp;
-	int		i;
+	int		buf_nl_idx;
+	char	*ret;
+	int		gnl_idx;
 
 	if (!line)
 		return (NULL);
-	i = 0;
-	while (line[i] != '\0')
-		++i;
-	tmp = (char *) ft_calloc(sizeof(char), i + 1);
-	if (!tmp)
+	if (is_buf)
+	{
+		buf_nl_idx = index_of(buf, '\n', INT_MAX);
+		ft_memcpy(line, buf, buf_idx + 1);
+		if (buf[buf_nl_idx] != '\n')
+			buf[buf_nl_idx] = 0;
+		else
+			buf_nl_idx++;
+		ft_memcpy(buf, buf + buf_nl_idx, SIZE - buf_nl_idx + 1);
+	}
+	gnl_idx = index_of(line, '\n', INT_MAX);
+	if (line[gnl_idx] == '\n')
+		gnl_idx++;
+	ret = ft_calloc(sizeof(char), gnl_idx + 1);
+	if (!ret)
 		return (free(line), NULL);
-	ft_memcpy(tmp, line, i);
+	ft_memcpy(ret, line, gnl_idx);
 	free(line);
-	return (tmp);
+	return (ret);
 }
-
-static char	*read_line(char *buf, int fd, int *counter, char **line);
-static void	clean_buffer(char *buf);
 
 char	*get_next_line(int fd)
 {
 	char			*line;
-	static char		buf[BUFFER_SIZE + 1];
-	int				counter;
+	static char		buf[SIZE + 1];
+	int				buf_idx;
 
-	if (fd < 0 || BUFFER_SIZE < 1)
+	if (fd < 0 || SIZE < 1)
 		return (NULL);
 	line = NULL;
-	counter = 0;
-	while (counter <= BUFFER_SIZE && buf[counter])
+	buf_idx = -1;
+	while (++buf_idx < SIZE && buf[buf_idx])
 	{
-		if (buf[counter] == '\n')
+		if (buf[buf_idx] == '\n')
 		{
-			line = (char *) ft_calloc(sizeof(char), BUFFER_SIZE + 1);
+			line = ft_calloc(sizeof(char), SIZE + 1);
 			if (!line)
 				return (NULL);
-			ft_memcpy(line, buf, counter + 1);
-			clean_buffer(buf);
-			return (check_free(line));
+			return (check_free(buf, buf_idx, line, true));
 		}
-		counter++;
 	}
-	if (buf[counter] != '\n')
-		read_line(buf, fd, &counter, &line);
-	return (check_free(line));
+	if (buf[buf_idx] != '\n')
+		read_line(buf, fd, &buf_idx, &line);
+	return (check_free(buf, buf_idx, line, false));
 }
 
-static void	clean_buffer(char *buf)
+static inline bool	iter_line(char **line, char *buf, char *tmp, int buf_idx)
 {
-	int	nl_index;
+	int	buf_nl_idx;
 
-	nl_index = index_of(buf, '\n', INT_MAX);
-	if (buf[nl_index] != '\n')
-		buf[nl_index] = 0;
+	*line = ft_calloc(sizeof(char), buf_idx + 1);
+	if (!*line)
+		return (false);
+	ft_strlcpy(*line, buf, buf_idx + 1);
+	ft_memcpy(buf, tmp, SIZE);
+	buf_nl_idx = index_of(buf, '\n', SIZE + 1);
+	if (buf[buf_nl_idx] != '\n')
+		buf[buf_nl_idx] = 0;
 	else
-		nl_index++;
-	ft_memcpy(buf, (buf + nl_index), (BUFFER_SIZE - nl_index) + 1);
+		buf_nl_idx++;
+	ft_memcpy(buf, buf + buf_nl_idx, SIZE - buf_nl_idx + 1);
+	return (true);
 }
 
-static void	read_success(char *tmp, char **line, int *counter)
+static char	*read_line(char *buf, int fd, int *buf_idx, char **line)
 {
-	int	i;
+	char		tmp[SIZE + 1];
+	const int	rd = read(fd, ft_memset(tmp, 0, SIZE), SIZE);
+	int			tmp_nl_idx;
 
-	*counter -= BUFFER_SIZE;
-	i = index_of(tmp, '\n', BUFFER_SIZE);
-	ft_memcpy((*line + *counter), tmp, i);
-	if (tmp[i] == '\n')
-		(*line)[*counter + i] = '\n';
-}
-
-/**
- * @brief Reads a line from a file descriptor.
- *
- * This function reads a line from the specified file
- * descriptor and stores it in the line parameter.
- *
- * @param buf Buffer to store temporary data read from the file descriptor.
- * @param fd File descriptor to read from.
- * @param counter Pointer to an integer representing the total
- * number of characters read so far.
- * @param line Pointer to a string to store the read line.
- * @return The read line if successful, or NULL if an error occurs
- * or the end of file is reached.
- */
-static char	*read_line(char *buf, int fd, int *counter, char **line)
-{
-	char	tmp[BUFFER_SIZE + 1];
-	int		rd;
-	int		i;
-
-	rd = read(fd, ft_memset(tmp, 0, BUFFER_SIZE), BUFFER_SIZE);
 	if (rd == -1)
-		return (ft_memset(buf, 0, BUFFER_SIZE));
+		return (ft_memset(buf, 0, SIZE));
 	if (rd > 0)
-		*counter += BUFFER_SIZE;
-	i = index_of(tmp, '\n', BUFFER_SIZE);
-	if (tmp[i] == '\n' || (rd == 0 && *counter != 0))
-	{
-		*line = (char *) ft_calloc(sizeof(char), *counter + 1);
-		if (!*line)
-			return (NULL);
-		ft_strlcpy(*line, buf, *counter + 1);
-		ft_memcpy(buf, tmp, BUFFER_SIZE);
-		clean_buffer(buf);
-	}
-	if (tmp[i] != '\n' && rd != 0 && !read_line(buf, fd, counter, line))
+		*buf_idx += SIZE;
+	tmp_nl_idx = index_of(tmp, '\n', SIZE);
+	if ((tmp[tmp_nl_idx] == '\n' || (rd == 0 && *buf_idx != 0))
+		&& !iter_line(line, buf, tmp, *buf_idx))
 		return (NULL);
-	else if (rd > 0)
-		read_success(tmp, line, counter);
+	if (tmp[tmp_nl_idx] != '\n' && rd != 0
+		&& !read_line(buf, fd, buf_idx, line))
+		return (NULL);
+	if (rd > 0 && *buf_idx != 0)
+	{
+		*buf_idx -= SIZE;
+		tmp_nl_idx = index_of(tmp, '\n', SIZE);
+		ft_memcpy(*line + *buf_idx, tmp, tmp_nl_idx);
+		if (tmp[tmp_nl_idx] == '\n')
+			(*line)[*buf_idx + tmp_nl_idx] = '\n';
+	}
 	return (*line);
 }

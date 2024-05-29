@@ -6,7 +6,7 @@
 /*   By: jschwabe <jschwabe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/04/18 14:26:18 by jschwabe          #+#    #+#             */
-/*   Updated: 2024/05/17 14:58:30 by jschwabe         ###   ########.fr       */
+/*   Updated: 2024/05/29 23:40:11 by jschwabe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -21,8 +21,10 @@
 # endif
 
 # ifndef BUFFER_SIZE
-#  define BUFFER_SIZE 1
+#  define BUFFER_SIZE 16
 # endif
+
+# define SIZE BUFFER_SIZE
 
 /* -------------------------------------------------------------------------- */
 /*                                    utils                                   */
