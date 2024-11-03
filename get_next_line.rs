@@ -1,5 +1,7 @@
 use ::libc;
-use libft_rs::{ft_memcpy::ft_memcpy, ft_memset::ft_memset, ft_calloc::ft_calloc, ft_strlcpy::ft_strlcpy};
+use libft_rs::{
+	ft_calloc::ft_calloc, ft_memcpy::ft_memcpy, ft_memset::ft_memset, ft_strlcpy::ft_strlcpy,
+};
 extern "C" {
 	fn free(_: *mut libc::c_void);
 	fn read(__fd: libc::c_int, __buf: *mut libc::c_void, __nbytes: size_t) -> ssize_t;
