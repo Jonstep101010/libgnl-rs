@@ -8,4 +8,3 @@
 
 extern crate libc;
 pub mod get_next_line;
-pub mod get_next_line_utils;

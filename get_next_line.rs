@@ -1,13 +1,28 @@
 use ::libc;
+use libft_rs::{ft_memcpy::ft_memcpy, ft_memset::ft_memset, ft_calloc::ft_calloc, ft_strlcpy::ft_strlcpy};
 extern "C" {
-	fn ft_strlcpy(dst: *mut libc::c_char, src: *const libc::c_char, size: size_t) -> size_t;
-	fn ft_calloc(nitems: size_t, size: size_t) -> *mut libc::c_void;
-	fn ft_memset(str: *mut libc::c_void, c: libc::c_int, n: size_t) -> *mut libc::c_void;
-	fn ft_memcpy(dst: *mut libc::c_void, src: *const libc::c_void, n: size_t) -> *mut libc::c_void;
-	fn index_of(str: *mut libc::c_char, c: libc::c_char, max_len: libc::c_int) -> libc::c_int;
 	fn free(_: *mut libc::c_void);
 	fn read(__fd: libc::c_int, __buf: *mut libc::c_void, __nbytes: size_t) -> ssize_t;
+	fn malloc(_: libc::c_ulong) -> *mut libc::c_void;
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn index_of(
+	mut str: *mut libc::c_char,
+	mut c: libc::c_char,
+	mut max_len: libc::c_int,
+) -> libc::c_int {
+	let mut i: libc::c_int = 0;
+	i = 0 as libc::c_int;
+	while i < max_len
+		&& *str.offset(i as isize) as libc::c_int != c as libc::c_int
+		&& *str.offset(i as isize) as libc::c_int != '\0' as i32
+	{
+		i += 1;
+	}
+	return i;
+}
+
 pub type size_t = libc::c_ulong;
 pub type __ssize_t = libc::c_long;
 pub type ssize_t = __ssize_t;

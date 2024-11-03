@@ -3,7 +3,7 @@ members = [
 ]
 [package]
 name = "libgnl_rs"
-authors = ["C2Rust"]
+authors = ["Jonstep101010"]
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -11,7 +11,8 @@ autobins = false
 
 [lib]
 name = "libgnl"
-path = "c2rust-lib.rs"
+path = "libgnl.rs"
 crate-type = ["staticlib", "rlib"]
 [dependencies]
 libc= "0.2"
+libft_rs = { package = "libft_rs", git= "https://github.com/Jonstep101010/libft-rs", branch = "main" }
