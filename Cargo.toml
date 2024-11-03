@@ -2,7 +2,7 @@
 members = [
 ]
 [package]
-name = "c2rust_out"
+name = "libgnl_rs"
 authors = ["C2Rust"]
 version = "0.0.0"
 publish = false
@@ -10,7 +10,7 @@ edition = "2021"
 autobins = false
 
 [lib]
-name = "c2rust_out"
+name = "libgnl"
 path = "c2rust-lib.rs"
 crate-type = ["staticlib", "rlib"]
 [dependencies]
