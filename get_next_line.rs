@@ -1,6 +1,9 @@
 #![allow(static_mut_refs)]
 use std::ptr::copy_nonoverlapping;
 
+const BUF_SIZE: i32 = 16;
+const BUF_SIZE_ONE: usize = BUF_SIZE as usize + 1;
+
 use ::libc;
 use libft_rs::{
 	ft_calloc::ft_calloc, ft_memcpy::ft_memcpy, ft_memset::ft_memset, ft_strlcpy::ft_strlcpy,
@@ -63,12 +66,12 @@ unsafe extern "C" fn check_free(
 		// ft_memcpy(
 		// 	buf as *mut libc::c_void,
 		// 	buf.offset(buf_nl_idx as isize) as *const libc::c_void,
-		// 	(16 as libc::c_int - buf_nl_idx + 1 as libc::c_int) as size_t,
+		// 	(BUF_SIZE - buf_nl_idx + 1 as libc::c_int) as size_t,
 		// );
 		copy_nonoverlapping(
 			buf.offset(buf_nl_idx as isize) as *const libc::c_void,
 			buf as *mut libc::c_void,
-			(16 as libc::c_int - buf_nl_idx + 1 as libc::c_int)
+			(BUF_SIZE - buf_nl_idx + 1 as libc::c_int)
 				.try_into()
 				.unwrap(),
 		);
@@ -105,22 +108,22 @@ unsafe extern "C" fn check_free(
 #[no_mangle]
 pub unsafe extern "C" fn get_next_line(mut fd: libc::c_int) -> *mut libc::c_char {
 	let mut line: *mut libc::c_char = std::ptr::null_mut::<libc::c_char>();
-	static mut buf: [libc::c_char; 17] = [0; 17];
+	static mut buf: [libc::c_char; BUF_SIZE_ONE] = [0; BUF_SIZE_ONE];
 	let mut buf_idx: libc::c_int = 0;
-	if fd < 0 as libc::c_int || (16 as libc::c_int) < 1 as libc::c_int {
+	if fd < 0 as libc::c_int || BUF_SIZE < 1 as libc::c_int {
 		return std::ptr::null_mut::<libc::c_char>();
 	}
 	line = std::ptr::null_mut::<libc::c_char>();
 	buf_idx = -(1 as libc::c_int);
 	loop {
 		buf_idx += 1;
-		if !(buf_idx < 16 as libc::c_int && buf[buf_idx as usize] as libc::c_int != 0) {
+		if !(buf_idx < BUF_SIZE && buf[buf_idx as usize] as libc::c_int != 0) {
 			break;
 		}
 		if buf[buf_idx as usize] as libc::c_int == '\n' as i32 {
 			line = ft_calloc(
 				::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
-				(16 as libc::c_int + 1 as libc::c_int) as size_t,
+				(BUF_SIZE + 1 as libc::c_int) as size_t,
 			) as *mut libc::c_char;
 			if line.is_null() {
 				return std::ptr::null_mut::<libc::c_char>();
@@ -152,9 +155,9 @@ unsafe extern "C" fn iter_line(
 	ft_memcpy(
 		buf as *mut libc::c_void,
 		tmp as *const libc::c_void,
-		16 as libc::c_int as size_t,
+		BUF_SIZE as size_t,
 	);
-	buf_nl_idx = index_of(buf, 16 as libc::c_int + 1 as libc::c_int);
+	buf_nl_idx = index_of(buf, BUF_SIZE + 1 as libc::c_int);
 	if *buf.offset(buf_nl_idx as isize) as libc::c_int != '\n' as i32 {
 		*buf.offset(buf_nl_idx as isize) = 0 as libc::c_int as libc::c_char;
 	} else {
@@ -163,7 +166,7 @@ unsafe extern "C" fn iter_line(
 	ft_memcpy(
 		buf as *mut libc::c_void,
 		buf.offset(buf_nl_idx as isize) as *const libc::c_void,
-		(16 as libc::c_int - buf_nl_idx + 1 as libc::c_int) as size_t,
+		(BUF_SIZE - buf_nl_idx + 1 as libc::c_int) as size_t,
 	);
 	1 as libc::c_int != 0
 }
@@ -173,28 +176,28 @@ unsafe extern "C" fn read_line(
 	mut buf_idx: *mut libc::c_int,
 	mut line: *mut *mut libc::c_char,
 ) -> *mut libc::c_char {
-	let mut tmp: [libc::c_char; 17] = [0; 17];
+	let mut tmp: [libc::c_char; BUF_SIZE_ONE] = [0; BUF_SIZE_ONE];
 	let rd: libc::c_int = read(
 		fd,
 		ft_memset(
 			tmp.as_mut_ptr() as *mut libc::c_void,
 			0 as libc::c_int,
-			16 as libc::c_int as size_t,
+			BUF_SIZE as size_t,
 		),
-		16 as libc::c_int as size_t,
+		BUF_SIZE as size_t,
 	) as libc::c_int;
 	let mut tmp_nl_idx: libc::c_int = 0;
 	if rd == -(1 as libc::c_int) {
 		return ft_memset(
 			buf as *mut libc::c_void,
 			0 as libc::c_int,
-			16 as libc::c_int as size_t,
+			BUF_SIZE as size_t,
 		) as *mut libc::c_char;
 	}
 	if rd > 0 as libc::c_int {
-		*buf_idx += 16 as libc::c_int;
+		*buf_idx += BUF_SIZE;
 	}
-	tmp_nl_idx = index_of(tmp.as_mut_ptr(), 16 as libc::c_int);
+	tmp_nl_idx = index_of(tmp.as_mut_ptr(), BUF_SIZE);
 	if (tmp[tmp_nl_idx as usize] as libc::c_int == '\n' as i32
 		|| rd == 0 as libc::c_int && *buf_idx != 0 as libc::c_int)
 		&& !iter_line(line, buf, tmp.as_mut_ptr(), *buf_idx)
@@ -208,8 +211,8 @@ unsafe extern "C" fn read_line(
 		return std::ptr::null_mut::<libc::c_char>();
 	}
 	if rd > 0 as libc::c_int && *buf_idx != 0 as libc::c_int {
-		*buf_idx -= 16 as libc::c_int;
-		tmp_nl_idx = index_of(tmp.as_mut_ptr(), 16 as libc::c_int);
+		*buf_idx -= BUF_SIZE;
+		tmp_nl_idx = index_of(tmp.as_mut_ptr(), BUF_SIZE);
 		// ft_memcpy(
 		// 	(*line).offset(*buf_idx as isize) as *mut libc::c_void,
 		// 	tmp.as_mut_ptr() as *const libc::c_void,
