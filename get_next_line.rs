@@ -5,9 +5,7 @@ const BUF_SIZE: i32 = 16;
 const BUF_SIZE_ONE: usize = BUF_SIZE as usize + 1;
 
 use ::libc;
-use libft_rs::{
-	ft_calloc::ft_calloc, ft_memcpy::ft_memcpy, ft_memset::ft_memset, ft_strlcpy::ft_strlcpy,
-};
+use libft_rs::{ft_calloc::ft_calloc, ft_memset::ft_memset, ft_strlcpy::ft_strlcpy};
 extern "C" {
 	fn free(_: *mut libc::c_void);
 	fn read(__fd: libc::c_int, __buf: *mut libc::c_void, __nbytes: size_t) -> ssize_t;
@@ -46,22 +44,12 @@ unsafe extern "C" fn check_free(
 	}
 	if is_buf {
 		let mut buf_nl_idx: libc::c_int = index_of(buf, 2147483647 as libc::c_int);
-		// ft_memcpy(
-		// 	line as *mut libc::c_void,
-		// 	buf as *const libc::c_void,
-		// 	(buf_idx + 1 as libc::c_int) as size_t,
-		// );
 		copy_nonoverlapping(buf, line, (buf_idx + 1).try_into().unwrap());
 		if *buf.offset(buf_nl_idx as isize) as libc::c_int != '\n' as i32 {
 			*buf.offset(buf_nl_idx as isize) = 0 as libc::c_int as libc::c_char;
 		} else {
 			buf_nl_idx += 1;
 		}
-		// ft_memcpy(
-		// 	buf as *mut libc::c_void,
-		// 	buf.offset(buf_nl_idx as isize) as *const libc::c_void,
-		// 	(BUF_SIZE - buf_nl_idx + 1 as libc::c_int) as size_t,
-		// );
 		copy_nonoverlapping(
 			buf.offset(buf_nl_idx as isize) as *const libc::c_void,
 			buf as *mut libc::c_void,
@@ -82,11 +70,6 @@ unsafe extern "C" fn check_free(
 		free(line as *mut libc::c_void);
 		return std::ptr::null_mut::<libc::c_void>() as *mut libc::c_char;
 	}
-	// ft_memcpy(
-	// 	ret as *mut libc::c_void,
-	// 	line as *const libc::c_void,
-	// 	gnl_idx as size_t,
-	// );
 	copy_nonoverlapping(line, ret, gnl_idx.try_into().unwrap());
 	free(line as *mut libc::c_void);
 	ret
@@ -144,10 +127,10 @@ unsafe extern "C" fn iter_line(
 		return 0 as libc::c_int != 0;
 	}
 	ft_strlcpy(*line, buf, (buf_idx + 1 as libc::c_int) as size_t);
-	ft_memcpy(
-		buf as *mut libc::c_void,
+	copy_nonoverlapping(
 		tmp as *const libc::c_void,
-		BUF_SIZE as size_t,
+		buf as *mut libc::c_void,
+		BUF_SIZE.try_into().unwrap(),
 	);
 	let mut buf_nl_idx: libc::c_int = index_of(buf, BUF_SIZE + 1 as libc::c_int);
 	if *buf.offset(buf_nl_idx as isize) as libc::c_int != '\n' as i32 {
@@ -155,10 +138,12 @@ unsafe extern "C" fn iter_line(
 	} else {
 		buf_nl_idx += 1;
 	}
-	ft_memcpy(
-		buf as *mut libc::c_void,
+	copy_nonoverlapping(
 		buf.offset(buf_nl_idx as isize) as *const libc::c_void,
-		(BUF_SIZE - buf_nl_idx + 1 as libc::c_int) as size_t,
+		buf as *mut libc::c_void,
+		(BUF_SIZE - buf_nl_idx + 1 as libc::c_int)
+			.try_into()
+			.unwrap(),
 	);
 	1 as libc::c_int != 0
 }
@@ -205,11 +190,6 @@ unsafe extern "C" fn read_line(
 	if rd > 0 as libc::c_int && *buf_idx != 0 as libc::c_int {
 		*buf_idx -= BUF_SIZE;
 		tmp_nl_idx = index_of(tmp.as_mut_ptr(), BUF_SIZE);
-		// ft_memcpy(
-		// 	(*line).offset(*buf_idx as isize) as *mut libc::c_void,
-		// 	tmp.as_mut_ptr() as *const libc::c_void,
-		// 	tmp_nl_idx as size_t,
-		// );
 		copy_nonoverlapping(
 			tmp.as_mut_ptr(),
 			(*line).offset(*buf_idx as isize),
