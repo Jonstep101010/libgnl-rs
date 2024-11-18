@@ -2,9 +2,10 @@
 
 const BUF_SIZE: i32 = 16;
 const BUF_SIZE_ONE: usize = BUF_SIZE as usize + 1;
+const BUF_USIZE: usize = BUF_SIZE as usize;
 
 use ::libc;
-use libft_rs::{ft_calloc::ft_calloc, ft_memset::ft_memset, ft_strlcpy::ft_strlcpy};
+use libft_rs::{ft_calloc::ft_calloc, ft_strlcpy::ft_strlcpy};
 extern "C" {
 	fn free(_: *mut libc::c_void);
 	fn read(__fd: libc::c_int, __buf: *mut libc::c_void, __nbytes: size_t) -> ssize_t;
@@ -119,21 +120,15 @@ unsafe extern "C" fn read_line(
 	mut line: *mut *mut libc::c_char,
 ) -> *mut libc::c_char {
 	let mut tmp: [libc::c_char; BUF_SIZE_ONE] = [0; BUF_SIZE_ONE];
+	tmp.as_mut_ptr().write_bytes(0, BUF_USIZE);
 	let rd: libc::c_int = read(
 		fd,
-		ft_memset(
-			tmp.as_mut_ptr() as *mut libc::c_void,
-			0 as libc::c_int,
-			BUF_SIZE as size_t,
-		),
+		tmp.as_mut_ptr() as *mut libc::c_void,
 		BUF_SIZE as size_t,
 	) as libc::c_int;
 	if rd == -(1 as libc::c_int) {
-		return ft_memset(
-			buf as *mut libc::c_void,
-			0 as libc::c_int,
-			BUF_SIZE as size_t,
-		) as *mut libc::c_char;
+		buf.write_bytes(0, BUF_USIZE);
+		return buf as *mut libc::c_char;
 	}
 	if rd > 0 as libc::c_int {
 		*buf_idx += BUF_SIZE;
