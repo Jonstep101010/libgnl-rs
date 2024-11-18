@@ -200,3 +200,50 @@ unsafe extern "C" fn read_line(
 	}
 	*line
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::io::Write;
+
+	/// 
+	/// running with miri:
+	/// set -x MIRIFLAGS "-Zmiri-disable-isolation -Zmiri-ignore-leaks"
+	/// cargo +nightly miri test
+	#[test]
+	fn gnl_basic() {
+		// open a file and get its file descriptor, print contents to stdout using get_next_line(fd)
+		// in c:
+		// int fd = open("../test.txt", O_RDONLY);
+		// loop over output of get_next_line(fd) and print to terminal
+		//
+
+		unsafe {
+			use std::ffi::CString;
+
+			let path = CString::new("test.txt").unwrap();
+			let fd = libc::open(path.as_ptr(), libc::O_RDONLY);
+			let mut line: *mut libc::c_char = get_next_line(fd);
+			while !line.is_null() {
+				let line_str = std::ffi::CStr::from_ptr(line).to_str().unwrap();
+				println!("{}", line_str);
+				line = get_next_line(fd);
+			}
+		}
+		let mut logfile = std::fs::File::create("log.txt").unwrap();
+		std::fs::read_to_string("test.txt")
+			.unwrap()
+			.lines()
+			.for_each(|line| {
+				// write to log file
+				logfile.write_all(line.as_bytes()).unwrap();
+				println!("{}", line);
+			});
+		// diff against expected.txt
+
+		let expected = std::fs::read_to_string("expected.txt").unwrap();
+		let output = std::fs::read_to_string("log.txt").unwrap();
+		assert_eq!(output, expected);
+		std::fs::remove_file("log.txt").unwrap();
+	}
+}

@@ -1,0 +1,7 @@
+//\n
+
+hello
+
+hello from rust!
+
+newlines are fun?
