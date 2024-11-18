@@ -224,11 +224,17 @@ mod tests {
 			let path = CString::new("test.txt").unwrap();
 			let fd = libc::open(path.as_ptr(), libc::O_RDONLY);
 			let mut line: *mut libc::c_char = get_next_line(fd);
+			let mut my_str = String::new();
 			while !line.is_null() {
 				let line_str = std::ffi::CStr::from_ptr(line).to_str().unwrap();
-				println!("{}", line_str);
+				// read to rust string
+				my_str.push_str(line_str);
+				// free c line
+				libc::free(line as *mut libc::c_void);
 				line = get_next_line(fd);
 			}
+			let expected = std::fs::read_to_string("test.txt").unwrap();
+			assert_eq!(expected, my_str);
 		}
 		let mut logfile = std::fs::File::create("log.txt").unwrap();
 		std::fs::read_to_string("test.txt")
