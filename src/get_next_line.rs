@@ -3,12 +3,14 @@
 const BUF_USIZE: usize = 16;
 const BUF_SIZE_ONE: usize = BUF_USIZE + 1;
 
+// use libc::free;
 use ::libc;
-use libft_rs::{ft_calloc::ft_calloc, ft_strlcpy::ft_strlcpy};
-extern "C" {
+unsafe extern "C" {
 	fn free(_: *mut libc::c_void);
 	fn read(__fd: libc::c_int, __buf: *mut libc::c_void, __nbytes: size_t) -> ssize_t;
 }
+use libft_rs::{ft_calloc::ft_calloc, ft_strlcpy::ft_strlcpy};
+// use nix::unistd::read;
 
 ///
 /// # Safety
@@ -16,8 +18,8 @@ extern "C" {
 /// Takes a string, a character, and a maximum length.
 /// Returns the index of the character in the string.
 /// If the character is not found, returns the maximum length.
-#[no_mangle]
-pub unsafe extern "C" fn index_of(str: *mut libc::c_char, max_len: usize) -> usize {
+#[unsafe(no_mangle)]
+unsafe extern "C" fn index_of(str: *mut libc::c_char, max_len: usize) -> usize {
 	let mut i: usize = 0;
 	while i < max_len
 		&& libc::c_int::from(*str.add(i)) != '\n' as libc::c_int
@@ -87,7 +89,7 @@ unsafe fn check_free(
 /// Returns the next line from the file descriptor.
 /// If the file descriptor is invalid, returns a null pointer.
 /// If the line is empty, returns a null pointer.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_next_line(fd: libc::c_int) -> *mut libc::c_char {
 	static mut buf: [libc::c_char; BUF_SIZE_ONE] = [0; BUF_SIZE_ONE];
 	if fd < 0 as libc::c_int || BUF_USIZE < 1 {

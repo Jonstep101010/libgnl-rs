@@ -6,7 +6,7 @@ name = "libgnl_rs"
 authors = ["Jonstep101010"]
 version = "0.0.0"
 publish = false
-edition = "2021"
+edition = "2024"
 autobins = false
 
 [lib]
@@ -16,3 +16,4 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 libc= "0.2"
 libft_rs = { package = "libft_rs", git= "https://github.com/Jonstep101010/libft-rs", branch = "main" }
+nix = "0.29.0"
