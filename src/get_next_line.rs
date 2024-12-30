@@ -103,7 +103,7 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut i8 {
 unsafe extern "C" fn read_line(
 	buf: *mut i8,
 	fd: RawFd,
-	buf_idx: *mut usize,
+	buf_idx: &mut usize,
 	line: &mut *mut i8,
 ) -> *mut i8 {
 	let mut tmp: [i8; BUF_SIZE_ONE] = [0; BUF_SIZE_ONE];
@@ -121,7 +121,7 @@ unsafe extern "C" fn read_line(
 			*buf_idx += BUF_USIZE;
 		}
 		let mut tmp_nl_idx: usize = index_of(tmp.as_mut_ptr(), BUF_USIZE);
-		if (libc::c_int::from(tmp[tmp_nl_idx]) == '\n' as i32 || rd == 0 && *buf_idx != 0)
+		if (tmp[tmp_nl_idx] == '\n' as i8 || rd == 0 && *buf_idx != 0)
 			&& !{
 				*line = allocate_for_c(*buf_idx + 1);
 				std::ptr::copy_nonoverlapping(buf, *line, *buf_idx); // replaces strlcpy
@@ -131,10 +131,10 @@ unsafe extern "C" fn read_line(
 					BUF_USIZE,
 				);
 				let mut buf_nl_idx: usize = index_of(buf, BUF_USIZE + 1);
-				if libc::c_int::from(*buf.add(buf_nl_idx)) == '\n' as i32 {
+				if *buf.add(buf_nl_idx) == '\n' as i8 {
 					buf_nl_idx += 1;
 				} else {
-					*buf.add(buf_nl_idx) = i8::try_from(0 as libc::c_int).unwrap();
+					*buf.add(buf_nl_idx) = 0;
 				}
 				std::ptr::copy(
 					buf.add(buf_nl_idx) as *const libc::c_void,
@@ -145,18 +145,17 @@ unsafe extern "C" fn read_line(
 			} {
 			return std::ptr::null_mut::<i8>();
 		}
-		if libc::c_int::from(tmp[tmp_nl_idx]) != '\n' as i32
-			&& rd != 0
-			&& (read_line(buf, fd, buf_idx, line)).is_null()
-		{
-			return std::ptr::null_mut::<i8>();
+		if tmp[tmp_nl_idx] != '\n' as i8 && rd != 0 {
+			if (read_line(buf, fd, buf_idx, line)).is_null() {
+				return std::ptr::null_mut::<i8>();
+			}
 		}
 		if rd > 0 && *buf_idx != 0 {
 			*buf_idx -= BUF_USIZE;
 			tmp_nl_idx = index_of(tmp.as_mut_ptr(), BUF_USIZE);
 			std::ptr::copy_nonoverlapping(tmp.as_mut_ptr(), (*line).add(*buf_idx), tmp_nl_idx);
-			if libc::c_int::from(tmp[tmp_nl_idx]) == '\n' as i32 {
-				*(*line).add(*buf_idx + tmp_nl_idx) = i8::try_from('\n' as i32).unwrap();
+			if tmp[tmp_nl_idx] == '\n' as i8 {
+				*(*line).add(*buf_idx + tmp_nl_idx) = '\n' as i8;
 			}
 		}
 		*line
