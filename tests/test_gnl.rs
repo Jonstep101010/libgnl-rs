@@ -18,14 +18,14 @@ fn gnl_basic() {
 
 		let path = CString::new("tests/test.txt").unwrap();
 		let fd = libc::open(path.as_ptr(), libc::O_RDONLY);
-		let mut line: *mut libc::c_char = get_next_line(fd);
+		let mut line = get_next_line(fd);
 		let mut my_str = String::new();
-		while !line.is_null() {
-			let line_str = std::ffi::CStr::from_ptr(line).to_str().unwrap();
+		while line.is_some() {
+			let unwrapped = line.unwrap();
+			let line_str = unwrapped.to_str().unwrap();
 			// read to rust string
 			my_str.push_str(line_str);
 			// free c line
-			libc::free(line.cast::<libc::c_void>());
 			line = get_next_line(fd);
 		}
 		let expected = std::fs::read_to_string("tests/test.txt").unwrap();
