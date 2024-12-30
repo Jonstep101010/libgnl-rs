@@ -1,4 +1,4 @@
-use libgnl::get_next_line::get_next_line;
+use get_next_line::get_next_line::get_next_line;
 use std::io::Write;
 
 ///

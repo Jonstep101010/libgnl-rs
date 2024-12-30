@@ -10,7 +10,7 @@ edition = "2024"
 autobins = false
 
 [lib]
-name = "libgnl"
+name = "get_next_line"
 path = "src/libgnl.rs"
 crate-type = ["staticlib", "rlib"]
 [dependencies]

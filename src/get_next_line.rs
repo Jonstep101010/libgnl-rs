@@ -1,6 +1,6 @@
 #![allow(static_mut_refs)]
 
-const BUF_USIZE: usize = 16;
+pub const BUF_USIZE: usize = 10;
 const BUF_SIZE_ONE: usize = BUF_USIZE + 1;
 use ::libc;
 use std::{
@@ -44,7 +44,7 @@ pub type ssize_t = __ssize_t;
 /// If the file descriptor is invalid, returns a null pointer.
 /// If the line is empty, returns a null pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut i8 {
+pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut libc::c_char {
 	unsafe {
 		static mut buf: [i8; BUF_SIZE_ONE] = [0; BUF_SIZE_ONE];
 		if fd < 0 as libc::c_int || BUF_USIZE < 1 {

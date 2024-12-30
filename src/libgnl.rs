@@ -3,4 +3,5 @@
 #![allow(non_upper_case_globals)]
 
 extern crate libc;
+pub mod c2rust_gnl;
 pub mod get_next_line;
