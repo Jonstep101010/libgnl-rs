@@ -113,51 +113,58 @@ unsafe extern "C" fn read_line(
 			tmp.as_mut_ptr().cast::<libc::c_void>(),
 			(BUF_USIZE as size_t).try_into().unwrap(),
 		) as ssize_t;
-		if rd == -1 {
-			buf.write_bytes(0, BUF_USIZE);
-			return buf.cast::<i8>();
-		}
-		if rd > 0 {
-			*buf_idx += BUF_USIZE;
-		}
-		let mut tmp_nl_idx: usize = index_of(tmp.as_mut_ptr(), BUF_USIZE);
-		if (tmp[tmp_nl_idx] == '\n' as i8 || rd == 0 && *buf_idx != 0)
-			&& !{
-				*line = allocate_for_c(*buf_idx + 1);
-				std::ptr::copy_nonoverlapping(buf, *line, *buf_idx); // replaces strlcpy
-				std::ptr::copy_nonoverlapping(
-					tmp.as_mut_ptr() as *const libc::c_void,
-					buf.cast::<libc::c_void>(),
-					BUF_USIZE,
-				);
-				let mut buf_nl_idx: usize = index_of(buf, BUF_USIZE + 1);
-				if *buf.add(buf_nl_idx) == '\n' as i8 {
-					buf_nl_idx += 1;
-				} else {
-					*buf.add(buf_nl_idx) = 0;
+		match rd {
+			-1 => {
+				buf.write_bytes(0, BUF_USIZE);
+				buf.cast::<i8>()
+			}
+			// we haven't failed yet
+			_ => {
+				if rd > 0 {
+					*buf_idx += BUF_USIZE;
 				}
-				std::ptr::copy(
-					buf.add(buf_nl_idx) as *const libc::c_void,
-					buf.cast::<libc::c_void>(),
-					BUF_USIZE - buf_nl_idx + 1,
-				);
-				true
-			} {
-			return std::ptr::null_mut::<i8>();
-		}
-		if tmp[tmp_nl_idx] != '\n' as i8 && rd != 0 {
-			if (read_line(buf, fd, buf_idx, line)).is_null() {
-				return std::ptr::null_mut::<i8>();
+				let mut tmp_nl_idx: usize = index_of(tmp.as_mut_ptr(), BUF_USIZE);
+				// if we have a newline in the buffer or we have reached the end of the file
+				if tmp[tmp_nl_idx] == '\n' as i8 || rd == 0 && *buf_idx != 0 {
+					*line = allocate_for_c(*buf_idx + 1);
+					std::ptr::copy_nonoverlapping(buf, *line, *buf_idx); // replaces strlcpy
+					std::ptr::copy_nonoverlapping(
+						tmp.as_mut_ptr() as *const libc::c_void,
+						buf.cast::<libc::c_void>(),
+						BUF_USIZE,
+					);
+					let mut buf_nl_idx: usize = index_of(buf, BUF_USIZE + 1);
+					if *buf.add(buf_nl_idx) == '\n' as i8 {
+						buf_nl_idx += 1;
+					} else {
+						*buf.add(buf_nl_idx) = 0;
+					}
+					std::ptr::copy(
+						buf.add(buf_nl_idx) as *const libc::c_void,
+						buf.cast::<libc::c_void>(),
+						BUF_USIZE - buf_nl_idx + 1,
+					);
+				}
+				// we might be at the end of the file, so we need to do a final read
+				if tmp[tmp_nl_idx] != '\n' as i8 && rd != 0 {
+					if (read_line(buf, fd, buf_idx, line)).is_null() {
+						return std::ptr::null_mut::<i8>();
+					}
+				}
+				if rd > 0 && *buf_idx != 0 {
+					*buf_idx -= BUF_USIZE;
+					tmp_nl_idx = index_of(tmp.as_mut_ptr(), BUF_USIZE);
+					std::ptr::copy_nonoverlapping(
+						tmp.as_mut_ptr(),
+						(*line).add(*buf_idx),
+						tmp_nl_idx,
+					);
+					if tmp[tmp_nl_idx] == '\n' as i8 {
+						*(*line).add(*buf_idx + tmp_nl_idx) = '\n' as i8;
+					}
+				}
+				*line
 			}
 		}
-		if rd > 0 && *buf_idx != 0 {
-			*buf_idx -= BUF_USIZE;
-			tmp_nl_idx = index_of(tmp.as_mut_ptr(), BUF_USIZE);
-			std::ptr::copy_nonoverlapping(tmp.as_mut_ptr(), (*line).add(*buf_idx), tmp_nl_idx);
-			if tmp[tmp_nl_idx] == '\n' as i8 {
-				*(*line).add(*buf_idx + tmp_nl_idx) = '\n' as i8;
-			}
-		}
-		*line
 	}
 }
