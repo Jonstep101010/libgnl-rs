@@ -3,14 +3,12 @@
 const BUF_USIZE: usize = 16;
 const BUF_SIZE_ONE: usize = BUF_USIZE + 1;
 use ::libc;
-use libc::{free, read};
 use std::{
 	alloc::{Layout, alloc},
 	ffi::CStr,
 	os::{fd::RawFd, raw::c_char},
 };
 
-// use nix::unistd::read;
 fn index_of(str: *const c_char, max_len: usize) -> usize {
 	let str = unsafe {
 		let cstring = CStr::from_ptr(str as *mut i8);
@@ -53,17 +51,17 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut i8 {
 			return std::ptr::null_mut::<i8>();
 		}
 		let mut buf_idx = 0;
-		while buf_idx < BUF_USIZE && libc::c_int::from(buf[buf_idx]) != 0 {
-			if libc::c_int::from(buf[buf_idx]) == '\n' as i32 {
+		while buf_idx < BUF_USIZE && buf[buf_idx] != 0 {
+			if buf[buf_idx] == '\n' as i8 {
 				let mut line_alloc = vec![0i8, BUF_SIZE_ONE as i8];
-				let mut buf_nl_idx: usize = index_of(buf.as_ptr(), 2_147_483_647);
+				let buf_nl_idx: usize = index_of(buf.as_ptr(), 2_147_483_647);
 				std::ptr::copy_nonoverlapping(buf.as_ptr(), line_alloc.as_mut_ptr(), buf_idx + 1);
 				if *buf.as_ptr().add(buf_nl_idx) == '\n' as i8 {
-					buf_nl_idx += 1;
+					buf.copy_within(buf_nl_idx + 1.., 0);
 				} else {
 					*buf.as_mut_ptr().add(buf_nl_idx) = 0;
+					buf.copy_within(buf_nl_idx.., 0);
 				}
-				buf.copy_within(buf_nl_idx.., 0);
 				let mut gnl_idx: usize = index_of(line_alloc.as_ptr().cast(), 2_147_483_647);
 				if *line_alloc.as_ptr().add(gnl_idx) == '\n' as i8 {
 					gnl_idx += 1;
@@ -78,7 +76,7 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut i8 {
 			buf_idx += 1;
 		}
 		let mut line: *mut i8 = std::ptr::null_mut::<i8>();
-		if libc::c_int::from(buf[buf_idx]) != '\n' as i32 {
+		if buf[buf_idx] != '\n' as i8 {
 			line = read_line(
 				buf.as_mut_ptr(),
 				fd,
@@ -86,26 +84,24 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut i8 {
 				&mut std::ptr::null_mut::<i8>(),
 			);
 		}
-		{
-			if line.is_null() {
-				return std::ptr::null_mut::<i8>();
-			}
-			let mut gnl_idx: usize = index_of(line, 2_147_483_647);
-			if libc::c_int::from(*line.add(gnl_idx)) == '\n' as i32 {
-				gnl_idx += 1;
-			}
-			let ret = allocate_for_c(gnl_idx + 1);
-			if ret.is_null() {
-				free(line.cast::<libc::c_void>());
-				return std::ptr::null_mut::<i8>();
-			}
-			std::ptr::copy_nonoverlapping(line, ret, gnl_idx);
-			ret
+		if line.is_null() {
+			return std::ptr::null_mut::<i8>();
 		}
+		let mut gnl_idx: usize = index_of(line, 2_147_483_647);
+		if *line.add(gnl_idx) == '\n' as i8 {
+			gnl_idx += 1;
+		}
+		let ret = allocate_for_c(gnl_idx + 1);
+		if ret.is_null() {
+			libc::free(line.cast::<libc::c_void>());
+			return std::ptr::null_mut::<i8>();
+		}
+		std::ptr::copy_nonoverlapping(line, ret, gnl_idx);
+		ret
 	}
 }
 
-unsafe extern "C" fn read_line(
+unsafe fn read_line(
 	buf: *mut i8,
 	fd: RawFd,
 	buf_idx: &mut usize,
@@ -114,61 +110,55 @@ unsafe extern "C" fn read_line(
 	// Safety: tmp does not contain nul terminators
 	let mut tmp: [i8; BUF_SIZE_ONE] = [0; BUF_SIZE_ONE];
 	unsafe {
-		let rd: ssize_t = read(
+		let rd = libc::read(
 			fd,
 			tmp.as_mut_ptr().cast::<libc::c_void>(),
-			(BUF_USIZE as size_t).try_into().unwrap(),
-		) as ssize_t;
-		match rd {
-			-1 => {
-				buf.write_bytes(0, BUF_USIZE);
-				return buf.cast::<i8>();
+			(BUF_USIZE).try_into().unwrap(),
+		);
+		if rd == -1 {
+			buf.write_bytes(0, BUF_USIZE);
+			return buf.cast::<i8>();
+		}
+		if rd > 0 {
+			*buf_idx += BUF_USIZE;
+		}
+		let tmp_nl_idx: usize = index_of(tmp.as_mut_ptr(), BUF_USIZE);
+		// if we have a newline in the buffer or we have reached the end of the file
+		if tmp[tmp_nl_idx] == '\n' as i8 || rd == 0 && *buf_idx != 0 {
+			*my_linebuf = allocate_for_c(*buf_idx + 1);
+			std::ptr::copy_nonoverlapping(buf, *my_linebuf, *buf_idx); // replaces strlcpy
+			std::ptr::copy_nonoverlapping(
+				tmp.as_mut_ptr() as *const libc::c_void,
+				buf.cast::<libc::c_void>(),
+				BUF_USIZE,
+			);
+			let mut buf_nl_idx: usize = index_of(buf, BUF_USIZE + 1);
+			if *buf.add(buf_nl_idx) == '\n' as i8 {
+				buf_nl_idx += 1;
+			} else {
+				*buf.add(buf_nl_idx) = 0;
 			}
-			// we haven't failed yet
-			_ => {
-				if rd > 0 {
-					*buf_idx += BUF_USIZE;
-				}
-				let tmp_nl_idx: usize = index_of(tmp.as_mut_ptr(), BUF_USIZE);
-				// if we have a newline in the buffer or we have reached the end of the file
-				if tmp[tmp_nl_idx] == '\n' as i8 || rd == 0 && *buf_idx != 0 {
-					*my_linebuf = allocate_for_c(*buf_idx + 1);
-					std::ptr::copy_nonoverlapping(buf, *my_linebuf, *buf_idx); // replaces strlcpy
-					std::ptr::copy_nonoverlapping(
-						tmp.as_mut_ptr() as *const libc::c_void,
-						buf.cast::<libc::c_void>(),
-						BUF_USIZE,
-					);
-					let mut buf_nl_idx: usize = index_of(buf, BUF_USIZE + 1);
-					if *buf.add(buf_nl_idx) == '\n' as i8 {
-						buf_nl_idx += 1;
-					} else {
-						*buf.add(buf_nl_idx) = 0;
-					}
-					std::ptr::copy(
-						buf.add(buf_nl_idx) as *const libc::c_void,
-						buf.cast::<libc::c_void>(),
-						BUF_USIZE - buf_nl_idx + 1,
-					);
-				}
-				// we might be at the end of the file, so we need to do a final read
-				if tmp[tmp_nl_idx] != '\n' as i8 && rd != 0 {
-					*my_linebuf = read_line(buf, fd, buf_idx, my_linebuf);
-					if my_linebuf.is_null() {
-						return std::ptr::null_mut::<i8>();
-					}
-				}
-				if rd > 0 && *buf_idx != 0 {
-					*buf_idx -= BUF_USIZE;
-					let tmp_nl_idx = index_of(tmp.as_ptr(), BUF_USIZE);
-					std::ptr::copy_nonoverlapping(
-						tmp.as_ptr(),
-						(*my_linebuf).add(*buf_idx),
-						tmp_nl_idx + 1,
-					);
-				}
-				return *my_linebuf;
+			std::ptr::copy(
+				buf.add(buf_nl_idx) as *const libc::c_void,
+				buf.cast::<libc::c_void>(),
+				BUF_USIZE - buf_nl_idx + 1,
+			);
+		}
+		if tmp[tmp_nl_idx] != '\n' as i8 && rd != 0 {
+			*my_linebuf = read_line(buf, fd, buf_idx, my_linebuf);
+			if my_linebuf.is_null() {
+				return std::ptr::null_mut::<i8>();
 			}
 		}
+		if rd > 0 && *buf_idx != 0 {
+			*buf_idx -= BUF_USIZE;
+			let tmp_nl_idx = index_of(tmp.as_ptr(), BUF_USIZE);
+			std::ptr::copy_nonoverlapping(
+				tmp.as_ptr(),
+				(*my_linebuf).add(*buf_idx),
+				tmp_nl_idx + 1,
+			);
+		}
+		*my_linebuf
 	}
 }
