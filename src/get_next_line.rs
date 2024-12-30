@@ -52,12 +52,8 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut libc::c_char {
 		if fd < 0 as libc::c_int || BUF_USIZE < 1 {
 			return std::ptr::null_mut::<libc::c_char>();
 		}
-		let mut line: *mut libc::c_char = std::ptr::null_mut::<libc::c_char>();
 		let mut buf_idx = 0;
-		loop {
-			if !(buf_idx < BUF_USIZE && libc::c_int::from(buf[buf_idx]) != 0) {
-				break;
-			}
+		while buf_idx < BUF_USIZE && libc::c_int::from(buf[buf_idx]) != 0 {
 			if libc::c_int::from(buf[buf_idx]) == '\n' as i32 {
 				let mut line_alloc = vec![0u8, BUF_SIZE_ONE as u8];
 				let mut buf_nl_idx: usize = index_of(buf.as_ptr(), 2_147_483_647);
@@ -86,6 +82,7 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut libc::c_char {
 			}
 			buf_idx += 1;
 		}
+		let mut line: *mut libc::c_char = std::ptr::null_mut::<libc::c_char>();
 		if libc::c_int::from(buf[buf_idx]) != '\n' as i32 {
 			read_line(buf.as_mut_ptr(), fd, &mut buf_idx, &mut line);
 		}
