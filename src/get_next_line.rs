@@ -2,15 +2,14 @@
 
 const BUF_USIZE: usize = 16;
 const BUF_SIZE_ONE: usize = BUF_USIZE + 1;
-use libft_rs::ft_calloc;
+use ::libc;
+use libc::{free, read};
 use std::{
-	ffi::{CStr, CString},
+	alloc::{Layout, alloc},
+	ffi::CStr,
 	os::{fd::RawFd, raw::c_char},
 };
 
-use ::libc;
-use libc::{free, read};
-use libft_rs::ft_strlcpy::ft_strlcpy;
 // use nix::unistd::read;
 fn index_of(str: *const c_char, max_len: usize) -> usize {
 	let str = unsafe {
@@ -22,6 +21,17 @@ fn index_of(str: *const c_char, max_len: usize) -> usize {
 		i += 1;
 	}
 	i
+}
+
+unsafe fn allocate_for_c(size: usize) -> *mut libc::c_char {
+	let layout = Layout::array::<libc::c_char>(size).unwrap();
+	unsafe {
+		let ptr = alloc(layout) as *mut libc::c_char;
+		if ptr.is_null() {
+			std::alloc::handle_alloc_error(layout);
+		}
+		ptr
+	}
 }
 
 pub type size_t = libc::c_ulong;
@@ -51,7 +61,7 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut libc::c_char {
 			if libc::c_int::from(buf[buf_idx]) == '\n' as i32 {
 				let mut line_alloc = vec![0u8, BUF_SIZE_ONE as u8];
 				let mut buf_nl_idx: usize = index_of(buf.as_ptr(), 2_147_483_647);
-				std::ptr::copy(
+				std::ptr::copy_nonoverlapping(
 					buf.as_ptr(),
 					line_alloc.as_mut_ptr() as *mut i8,
 					buf_idx + 1,
@@ -62,24 +72,16 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut libc::c_char {
 					*buf.as_mut_ptr().add(buf_nl_idx) =
 						libc::c_char::try_from(0 as libc::c_int).unwrap();
 				}
-				std::ptr::copy(
-					buf.as_ptr().add(buf_nl_idx),
-					buf.as_mut_ptr(),
-					BUF_USIZE - buf_nl_idx + 1,
-				);
+				buf.copy_within(buf_nl_idx.., 0);
 				let mut gnl_idx: usize = index_of(line_alloc.as_ptr().cast(), 2_147_483_647);
-				if libc::c_int::from(*line_alloc.as_ptr().add(gnl_idx)) == '\n' as i32 {
+				if *line_alloc.as_ptr().add(gnl_idx) == b'\n' {
 					gnl_idx += 1;
 				}
-				let ret: *mut libc::c_char = ft_calloc(
-					::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
-					(gnl_idx + 1) as size_t,
-				)
-				.cast::<libc::c_char>();
+				let ret = allocate_for_c(gnl_idx + 1);
 				if ret.is_null() {
 					return std::ptr::null_mut::<libc::c_char>();
 				}
-				std::ptr::copy(line_alloc.as_ptr(), ret as *mut u8, gnl_idx);
+				std::ptr::copy_nonoverlapping(line_alloc.as_ptr(), ret as *mut u8, gnl_idx);
 				return ret;
 			}
 			buf_idx += 1;
@@ -95,17 +97,12 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut libc::c_char {
 			if libc::c_int::from(*line.add(gnl_idx)) == '\n' as i32 {
 				gnl_idx += 1;
 			}
-			let ret: *mut libc::c_char = ft_calloc(
-				::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
-				(gnl_idx + 1) as size_t,
-			)
-			.cast::<libc::c_char>();
+			let ret = allocate_for_c(gnl_idx + 1);
 			if ret.is_null() {
 				free(line.cast::<libc::c_void>());
 				return std::ptr::null_mut::<libc::c_char>();
 			}
-			std::ptr::copy(line, ret, gnl_idx);
-			free(line.cast::<libc::c_void>());
+			std::ptr::copy_nonoverlapping(line, ret, gnl_idx);
 			ret
 		}
 	}
@@ -136,33 +133,25 @@ unsafe extern "C" fn read_line(
 		let mut tmp_nl_idx: usize = index_of(tmp.as_mut_ptr(), BUF_USIZE);
 		if (libc::c_int::from(tmp[tmp_nl_idx]) == '\n' as i32 || rd == 0 && *buf_idx != 0)
 			&& !{
-				*line = ft_calloc(
-					::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
-					(*buf_idx + 1) as size_t,
-				)
-				.cast::<libc::c_char>();
-				if (*line).is_null() {
-					false
+				*line = allocate_for_c(*buf_idx + 1);
+				std::ptr::copy_nonoverlapping(buf, *line, *buf_idx); // replaces strlcpy
+				std::ptr::copy(
+					tmp.as_mut_ptr() as *const libc::c_void,
+					buf.cast::<libc::c_void>(),
+					BUF_USIZE,
+				);
+				let mut buf_nl_idx: usize = index_of(buf, BUF_USIZE + 1);
+				if libc::c_int::from(*buf.add(buf_nl_idx)) == '\n' as i32 {
+					buf_nl_idx += 1;
 				} else {
-					ft_strlcpy(*line, buf, (*buf_idx + 1) as size_t);
-					std::ptr::copy(
-						tmp.as_mut_ptr() as *const libc::c_void,
-						buf.cast::<libc::c_void>(),
-						BUF_USIZE,
-					);
-					let mut buf_nl_idx: usize = index_of(buf, BUF_USIZE + 1);
-					if libc::c_int::from(*buf.add(buf_nl_idx)) == '\n' as i32 {
-						buf_nl_idx += 1;
-					} else {
-						*buf.add(buf_nl_idx) = libc::c_char::try_from(0 as libc::c_int).unwrap();
-					}
-					std::ptr::copy(
-						buf.add(buf_nl_idx) as *const libc::c_void,
-						buf.cast::<libc::c_void>(),
-						BUF_USIZE - buf_nl_idx + 1,
-					);
-					true
+					*buf.add(buf_nl_idx) = libc::c_char::try_from(0 as libc::c_int).unwrap();
 				}
+				std::ptr::copy(
+					buf.add(buf_nl_idx) as *const libc::c_void,
+					buf.cast::<libc::c_void>(),
+					BUF_USIZE - buf_nl_idx + 1,
+				);
+				true
 			} {
 			return std::ptr::null_mut::<libc::c_char>();
 		}
