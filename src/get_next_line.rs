@@ -27,47 +27,6 @@ fn index_of(str: *const c_char, max_len: usize) -> usize {
 pub type size_t = libc::c_ulong;
 pub type __ssize_t = libc::c_long;
 pub type ssize_t = __ssize_t;
-#[allow(unused_mut)]
-unsafe fn check_free(
-	mut buf: *mut libc::c_char,
-	buf_idx: usize,
-	mut line: *mut libc::c_char,
-	is_buf: bool,
-) -> *mut libc::c_char {
-	if line.is_null() {
-		return std::ptr::null_mut::<libc::c_char>();
-	}
-	if is_buf {
-		let mut buf_nl_idx: usize = index_of(buf, 2_147_483_647);
-		std::ptr::copy(buf, line, buf_idx + 1);
-		if libc::c_int::from(*buf.add(buf_nl_idx)) == '\n' as i32 {
-			buf_nl_idx += 1;
-		} else {
-			*buf.add(buf_nl_idx) = libc::c_char::try_from(0 as libc::c_int).unwrap();
-		}
-		std::ptr::copy(
-			buf.add(buf_nl_idx) as *const libc::c_void,
-			buf.cast::<libc::c_void>(),
-			BUF_USIZE - buf_nl_idx + 1,
-		);
-	}
-	let mut gnl_idx: usize = index_of(line, 2_147_483_647);
-	if libc::c_int::from(*line.add(gnl_idx)) == '\n' as i32 {
-		gnl_idx += 1;
-	}
-	let mut ret: *mut libc::c_char = ft_calloc(
-		::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
-		(gnl_idx + 1) as size_t,
-	)
-	.cast::<libc::c_char>();
-	if ret.is_null() {
-		free(line.cast::<libc::c_void>());
-		return std::ptr::null_mut::<libc::c_char>();
-	}
-	std::ptr::copy(line, ret, gnl_idx);
-	free(line.cast::<libc::c_void>());
-	ret
-}
 
 ///
 /// # Safety
@@ -97,14 +56,68 @@ pub unsafe extern "C" fn get_next_line(fd: libc::c_int) -> *mut libc::c_char {
 			if line.is_null() {
 				return std::ptr::null_mut::<libc::c_char>();
 			}
-			return check_free(buf.as_mut_ptr(), buf_idx, line, true);
+			return {
+				let mut line = line;
+				if true {
+					let mut buf_nl_idx: usize = index_of(buf.as_mut_ptr(), 2_147_483_647);
+					std::ptr::copy(buf.as_mut_ptr(), line, buf_idx + 1);
+					if libc::c_int::from(*buf.as_mut_ptr().add(buf_nl_idx)) == '\n' as i32 {
+						buf_nl_idx += 1;
+					} else {
+						*buf.as_mut_ptr().add(buf_nl_idx) =
+							libc::c_char::try_from(0 as libc::c_int).unwrap();
+					}
+					std::ptr::copy(
+						buf.as_mut_ptr().add(buf_nl_idx) as *const libc::c_void,
+						buf.as_mut_ptr().cast::<libc::c_void>(),
+						BUF_USIZE - buf_nl_idx + 1,
+					);
+				}
+				let mut gnl_idx: usize = index_of(line, 2_147_483_647);
+				if libc::c_int::from(*line.add(gnl_idx)) == '\n' as i32 {
+					gnl_idx += 1;
+				}
+				let mut ret: *mut libc::c_char = ft_calloc(
+					::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
+					(gnl_idx + 1) as size_t,
+				)
+				.cast::<libc::c_char>();
+				if ret.is_null() {
+					free(line.cast::<libc::c_void>());
+					return std::ptr::null_mut::<libc::c_char>();
+				}
+				std::ptr::copy(line, ret, gnl_idx);
+				free(line.cast::<libc::c_void>());
+				ret
+			};
 		}
 		buf_idx += 1;
 	}
 	if libc::c_int::from(buf[buf_idx]) != '\n' as i32 {
 		read_line(buf.as_mut_ptr(), fd, &mut buf_idx, &mut line);
 	}
-	check_free(buf.as_mut_ptr(), buf_idx, line, false)
+	{
+		let mut line = line;
+		if line.is_null() {
+			return std::ptr::null_mut::<libc::c_char>();
+		}
+		let mut gnl_idx: usize = index_of(line, 2_147_483_647);
+		if libc::c_int::from(*line.add(gnl_idx)) == '\n' as i32 {
+			gnl_idx += 1;
+		}
+		let mut ret: *mut libc::c_char = ft_calloc(
+			::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
+			(gnl_idx + 1) as size_t,
+		)
+		.cast::<libc::c_char>();
+		if ret.is_null() {
+			free(line.cast::<libc::c_void>());
+			return std::ptr::null_mut::<libc::c_char>();
+		}
+		std::ptr::copy(line, ret, gnl_idx);
+		free(line.cast::<libc::c_void>());
+		ret
+	}
 }
 
 #[allow(unused_mut)]
