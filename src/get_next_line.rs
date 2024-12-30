@@ -36,7 +36,7 @@ pub type ssize_t = __ssize_t;
 /// If the file descriptor is invalid, returns a null pointer.
 /// If the line is empty, returns a null pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn get_next_line(fd: libc::c_int) -> *mut libc::c_char {
+pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut libc::c_char {
 	unsafe {
 		static mut buf: [libc::c_char; BUF_SIZE_ONE] = [0; BUF_SIZE_ONE];
 		if fd < 0 as libc::c_int || BUF_USIZE < 1 {
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn get_next_line(fd: libc::c_int) -> *mut libc::c_char {
 			if libc::c_int::from(*line.add(gnl_idx)) == '\n' as i32 {
 				gnl_idx += 1;
 			}
-			let mut ret: *mut libc::c_char = ft_calloc(
+			let ret: *mut libc::c_char = ft_calloc(
 				::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
 				(gnl_idx + 1) as size_t,
 			)
@@ -114,70 +114,72 @@ pub unsafe extern "C" fn get_next_line(fd: libc::c_int) -> *mut libc::c_char {
 #[allow(unused_mut)]
 unsafe extern "C" fn read_line(
 	mut buf: *mut libc::c_char,
-	fd: libc::c_int,
+	fd: RawFd,
 	mut buf_idx: *mut usize,
 	mut line: *mut *mut libc::c_char,
 ) -> *mut libc::c_char {
 	let mut tmp: [libc::c_char; BUF_SIZE_ONE] = [0; BUF_SIZE_ONE];
-	tmp.as_mut_ptr().write_bytes(0, BUF_USIZE);
-	let rd: ssize_t = read(
-		fd,
-		tmp.as_mut_ptr().cast::<libc::c_void>(),
-		(BUF_USIZE as size_t).try_into().unwrap(),
-	) as ssize_t;
-	if rd == -1 {
-		buf.write_bytes(0, BUF_USIZE);
-		return buf.cast::<libc::c_char>();
-	}
-	if rd > 0 {
-		*buf_idx += BUF_USIZE;
-	}
-	let mut tmp_nl_idx: usize = index_of(tmp.as_mut_ptr(), BUF_USIZE);
-	if (libc::c_int::from(tmp[tmp_nl_idx]) == '\n' as i32 || rd == 0 && *buf_idx != 0)
-		&& !{
-			*line = ft_calloc(
-				::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
-				(*buf_idx + 1) as size_t,
-			)
-			.cast::<libc::c_char>();
-			if (*line).is_null() {
-				false
-			} else {
-				ft_strlcpy(*line, buf, (*buf_idx + 1) as size_t);
-				std::ptr::copy(
-					tmp.as_mut_ptr() as *const libc::c_void,
-					buf.cast::<libc::c_void>(),
-					BUF_USIZE,
-				);
-				let mut buf_nl_idx: usize = index_of(buf, BUF_USIZE + 1);
-				if libc::c_int::from(*buf.add(buf_nl_idx)) == '\n' as i32 {
-					buf_nl_idx += 1;
-				} else {
-					*buf.add(buf_nl_idx) = libc::c_char::try_from(0 as libc::c_int).unwrap();
-				}
-				std::ptr::copy(
-					buf.add(buf_nl_idx) as *const libc::c_void,
-					buf.cast::<libc::c_void>(),
-					BUF_USIZE - buf_nl_idx + 1,
-				);
-				true
-			}
-		} {
-		return std::ptr::null_mut::<libc::c_char>();
-	}
-	if libc::c_int::from(tmp[tmp_nl_idx]) != '\n' as i32
-		&& rd != 0
-		&& (read_line(buf, fd, buf_idx, line)).is_null()
-	{
-		return std::ptr::null_mut::<libc::c_char>();
-	}
-	if rd > 0 && *buf_idx != 0 {
-		*buf_idx -= BUF_USIZE;
-		tmp_nl_idx = index_of(tmp.as_mut_ptr(), BUF_USIZE);
-		std::ptr::copy(tmp.as_mut_ptr(), (*line).add(*buf_idx), tmp_nl_idx);
-		if libc::c_int::from(tmp[tmp_nl_idx]) == '\n' as i32 {
-			*(*line).add(*buf_idx + tmp_nl_idx) = libc::c_char::try_from('\n' as i32).unwrap();
+	unsafe {
+		tmp.as_mut_ptr().write_bytes(0, BUF_USIZE);
+		let rd: ssize_t = read(
+			fd,
+			tmp.as_mut_ptr().cast::<libc::c_void>(),
+			(BUF_USIZE as size_t).try_into().unwrap(),
+		) as ssize_t;
+		if rd == -1 {
+			buf.write_bytes(0, BUF_USIZE);
+			return buf.cast::<libc::c_char>();
 		}
+		if rd > 0 {
+			*buf_idx += BUF_USIZE;
+		}
+		let mut tmp_nl_idx: usize = index_of(tmp.as_mut_ptr(), BUF_USIZE);
+		if (libc::c_int::from(tmp[tmp_nl_idx]) == '\n' as i32 || rd == 0 && *buf_idx != 0)
+			&& !{
+				*line = ft_calloc(
+					::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
+					(*buf_idx + 1) as size_t,
+				)
+				.cast::<libc::c_char>();
+				if (*line).is_null() {
+					false
+				} else {
+					ft_strlcpy(*line, buf, (*buf_idx + 1) as size_t);
+					std::ptr::copy(
+						tmp.as_mut_ptr() as *const libc::c_void,
+						buf.cast::<libc::c_void>(),
+						BUF_USIZE,
+					);
+					let mut buf_nl_idx: usize = index_of(buf, BUF_USIZE + 1);
+					if libc::c_int::from(*buf.add(buf_nl_idx)) == '\n' as i32 {
+						buf_nl_idx += 1;
+					} else {
+						*buf.add(buf_nl_idx) = libc::c_char::try_from(0 as libc::c_int).unwrap();
+					}
+					std::ptr::copy(
+						buf.add(buf_nl_idx) as *const libc::c_void,
+						buf.cast::<libc::c_void>(),
+						BUF_USIZE - buf_nl_idx + 1,
+					);
+					true
+				}
+			} {
+			return std::ptr::null_mut::<libc::c_char>();
+		}
+		if libc::c_int::from(tmp[tmp_nl_idx]) != '\n' as i32
+			&& rd != 0
+			&& (read_line(buf, fd, buf_idx, line)).is_null()
+		{
+			return std::ptr::null_mut::<libc::c_char>();
+		}
+		if rd > 0 && *buf_idx != 0 {
+			*buf_idx -= BUF_USIZE;
+			tmp_nl_idx = index_of(tmp.as_mut_ptr(), BUF_USIZE);
+			std::ptr::copy(tmp.as_mut_ptr(), (*line).add(*buf_idx), tmp_nl_idx);
+			if libc::c_int::from(tmp[tmp_nl_idx]) == '\n' as i32 {
+				*(*line).add(*buf_idx + tmp_nl_idx) = libc::c_char::try_from('\n' as i32).unwrap();
+			}
+		}
+		*line
 	}
-	*line
 }
