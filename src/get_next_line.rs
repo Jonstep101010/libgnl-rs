@@ -79,7 +79,12 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut i8 {
 		}
 		let mut line: *mut i8 = std::ptr::null_mut::<i8>();
 		if libc::c_int::from(buf[buf_idx]) != '\n' as i32 {
-			read_line(buf.as_mut_ptr(), fd, &mut buf_idx, &mut line);
+			line = read_line(
+				buf.as_mut_ptr(),
+				fd,
+				&mut buf_idx,
+				&mut std::ptr::null_mut::<i8>(),
+			);
 		}
 		{
 			if line.is_null() {
@@ -104,8 +109,9 @@ unsafe extern "C" fn read_line(
 	buf: *mut i8,
 	fd: RawFd,
 	buf_idx: &mut usize,
-	line: &mut *mut i8,
+	my_linebuf: &mut *mut i8,
 ) -> *mut i8 {
+	// Safety: tmp does not contain nul terminators
 	let mut tmp: [i8; BUF_SIZE_ONE] = [0; BUF_SIZE_ONE];
 	unsafe {
 		let rd: ssize_t = read(
@@ -123,11 +129,11 @@ unsafe extern "C" fn read_line(
 				if rd > 0 {
 					*buf_idx += BUF_USIZE;
 				}
-				let mut tmp_nl_idx: usize = index_of(tmp.as_mut_ptr(), BUF_USIZE);
+				let tmp_nl_idx: usize = index_of(tmp.as_mut_ptr(), BUF_USIZE);
 				// if we have a newline in the buffer or we have reached the end of the file
 				if tmp[tmp_nl_idx] == '\n' as i8 || rd == 0 && *buf_idx != 0 {
-					*line = allocate_for_c(*buf_idx + 1);
-					std::ptr::copy_nonoverlapping(buf, *line, *buf_idx); // replaces strlcpy
+					*my_linebuf = allocate_for_c(*buf_idx + 1);
+					std::ptr::copy_nonoverlapping(buf, *my_linebuf, *buf_idx); // replaces strlcpy
 					std::ptr::copy_nonoverlapping(
 						tmp.as_mut_ptr() as *const libc::c_void,
 						buf.cast::<libc::c_void>(),
@@ -147,23 +153,24 @@ unsafe extern "C" fn read_line(
 				}
 				// we might be at the end of the file, so we need to do a final read
 				if tmp[tmp_nl_idx] != '\n' as i8 && rd != 0 {
-					if (read_line(buf, fd, buf_idx, line)).is_null() {
+					*my_linebuf = read_line(buf, fd, buf_idx, my_linebuf);
+					if (*my_linebuf).is_null() {
 						return std::ptr::null_mut::<i8>();
 					}
 				}
 				if rd > 0 && *buf_idx != 0 {
 					*buf_idx -= BUF_USIZE;
-					tmp_nl_idx = index_of(tmp.as_mut_ptr(), BUF_USIZE);
+					let tmp_nl_idx = index_of(tmp.as_ptr(), BUF_USIZE);
 					std::ptr::copy_nonoverlapping(
-						tmp.as_mut_ptr(),
-						(*line).add(*buf_idx),
-						tmp_nl_idx,
+						tmp.as_ptr(),
+						(*my_linebuf).add(*buf_idx),
+						tmp_nl_idx + 1,
 					);
-					if tmp[tmp_nl_idx] == '\n' as i8 {
-						*(*line).add(*buf_idx + tmp_nl_idx) = '\n' as i8;
-					}
+					// if tmp[tmp_nl_idx] == '\n' as i8 {
+					// 	*(*line).add(*buf_idx + tmp_nl_idx) = '\n' as i8;
+					// }
 				}
-				*line
+				*my_linebuf
 			}
 		}
 	}
