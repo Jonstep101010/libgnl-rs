@@ -122,7 +122,7 @@ unsafe extern "C" fn read_line(
 		match rd {
 			-1 => {
 				buf.write_bytes(0, BUF_USIZE);
-				buf.cast::<i8>()
+				return buf.cast::<i8>();
 			}
 			// we haven't failed yet
 			_ => {
@@ -154,7 +154,7 @@ unsafe extern "C" fn read_line(
 				// we might be at the end of the file, so we need to do a final read
 				if tmp[tmp_nl_idx] != '\n' as i8 && rd != 0 {
 					*my_linebuf = read_line(buf, fd, buf_idx, my_linebuf);
-					if (*my_linebuf).is_null() {
+					if my_linebuf.is_null() {
 						return std::ptr::null_mut::<i8>();
 					}
 				}
@@ -166,11 +166,8 @@ unsafe extern "C" fn read_line(
 						(*my_linebuf).add(*buf_idx),
 						tmp_nl_idx + 1,
 					);
-					// if tmp[tmp_nl_idx] == '\n' as i8 {
-					// 	*(*line).add(*buf_idx + tmp_nl_idx) = '\n' as i8;
-					// }
 				}
-				*my_linebuf
+				return *my_linebuf;
 			}
 		}
 	}
