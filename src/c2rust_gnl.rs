@@ -9,6 +9,8 @@
 )]
 #![allow(static_mut_refs)]
 
+pub const BUFFER_SIZE: usize = 10;
+
 unsafe extern "C" {
 	pub type __sFILEX;
 	fn malloc(_: libc::c_ulong) -> *mut libc::c_void;
@@ -77,13 +79,14 @@ pub unsafe extern "C" fn shift_static_buffer(mut static_buffer: *mut libc::c_cha
 		memset(
 			static_buffer as *mut libc::c_void,
 			'\0' as i32,
-			20 as libc::c_int as libc::c_ulong,
+			BUFFER_SIZE as libc::c_int as libc::c_ulong,
 		);
 		return;
 	}
 	let start: size_t = (newline_pos.offset_from(static_buffer) as libc::c_long
 		+ 1 as libc::c_int as libc::c_long) as size_t;
-	let shift_len: size_t = ((20 as libc::c_int + 1 as libc::c_int) as size_t).wrapping_sub(start);
+	let shift_len: size_t =
+		((BUFFER_SIZE as libc::c_int + 1 as libc::c_int) as size_t).wrapping_sub(start);
 	memmove(
 		static_buffer as *mut libc::c_void,
 		static_buffer.offset(start as isize) as *const libc::c_void,
@@ -92,7 +95,7 @@ pub unsafe extern "C" fn shift_static_buffer(mut static_buffer: *mut libc::c_cha
 	memset(
 		static_buffer.offset(shift_len as isize) as *mut libc::c_void,
 		0 as libc::c_int,
-		(20 as libc::c_int as size_t).wrapping_sub(shift_len),
+		(BUFFER_SIZE as libc::c_int as size_t).wrapping_sub(shift_len),
 	);
 }
 #[unsafe(no_mangle)]
@@ -130,43 +133,21 @@ pub unsafe extern "C" fn read_newln(
 	mut static_buffer: *mut libc::c_char,
 	mut return_line: *mut *mut libc::c_char,
 ) -> *mut libc::c_char {
-	let mut temp_buffer: [libc::c_char; 21] = [
-		0 as libc::c_int as libc::c_char,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-	];
+	let mut temp_buffer: [libc::c_char; BUFFER_SIZE + 1] = [0; BUFFER_SIZE + 1];
 	let bytes_read: ssize_t = read(
 		fd,
 		temp_buffer.as_mut_ptr() as *mut libc::c_void,
-		20 as libc::c_int as size_t,
+		BUFFER_SIZE as libc::c_int as size_t,
 	);
 	if bytes_read > 0 as libc::c_int as ssize_t {
-		*count += 20 as libc::c_int;
+		*count += BUFFER_SIZE as libc::c_int;
 	} else if bytes_read < 0 as libc::c_int as ssize_t
 		|| bytes_read == 0 as libc::c_int as ssize_t && *count == 0 as libc::c_int
 	{
 		*return_line = 0 as *mut libc::c_char;
 		bzero(
 			static_buffer as *mut libc::c_void,
-			(20 as libc::c_int + 1 as libc::c_int) as libc::c_ulong,
+			(BUFFER_SIZE as libc::c_int + 1 as libc::c_int) as libc::c_ulong,
 		);
 		return 0 as *mut libc::c_char;
 	}
@@ -189,23 +170,23 @@ pub unsafe extern "C" fn read_newln(
 		memcpy(
 			static_buffer as *mut libc::c_void,
 			temp_buffer.as_mut_ptr() as *const libc::c_void,
-			20 as libc::c_int as libc::c_ulong,
+			BUFFER_SIZE as libc::c_int as libc::c_ulong,
 		);
 		shift_static_buffer(static_buffer);
 	} else if newline_pos.is_null() && bytes_read != 0 as libc::c_int as ssize_t {
 		*return_line = read_newln(fd, count, static_buffer, return_line);
 	}
 	if *temp_buffer.as_mut_ptr() != 0 {
-		*count -= 20 as libc::c_int;
+		*count -= BUFFER_SIZE as libc::c_int;
 		let mut newline: *const libc::c_char = strchr(temp_buffer.as_mut_ptr(), '\n' as i32);
 		if !newline.is_null() {
 			let len: libc::c_int = (if (newline.offset_from(temp_buffer.as_mut_ptr())
 				as libc::c_long)
-				< 20 as libc::c_int as libc::c_long
+				< BUFFER_SIZE as libc::c_int as libc::c_long
 			{
 				newline.offset_from(temp_buffer.as_mut_ptr()) as libc::c_long
 			} else {
-				20 as libc::c_int as libc::c_long
+				BUFFER_SIZE as libc::c_int as libc::c_long
 			}) as libc::c_int;
 			memcpy(
 				(*return_line).offset(*count as isize) as *mut libc::c_void,
@@ -216,7 +197,7 @@ pub unsafe extern "C" fn read_newln(
 			memcpy(
 				(*return_line).offset(*count as isize) as *mut libc::c_void,
 				temp_buffer.as_mut_ptr() as *const libc::c_void,
-				20 as libc::c_int as libc::c_ulong,
+				BUFFER_SIZE as libc::c_int as libc::c_ulong,
 			);
 		}
 	}
@@ -225,7 +206,7 @@ pub unsafe extern "C" fn read_newln(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn read_buffer(mut static_buffer: *mut libc::c_char) -> *mut libc::c_char {
 	let mut line_staticbuffer: *mut libc::c_char = calloc(
-		(20 as libc::c_int + 1 as libc::c_int) as libc::c_ulong,
+		(BUFFER_SIZE + 1) as libc::c_ulong,
 		::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
 	) as *mut libc::c_char;
 	if line_staticbuffer.is_null() {
@@ -245,11 +226,14 @@ pub unsafe extern "C" fn read_buffer(mut static_buffer: *mut libc::c_char) -> *m
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_next_line(mut fd: libc::c_int) -> *mut libc::c_char {
-	if (20 as libc::c_int) < 1 as libc::c_int || fd > 10240 as libc::c_int || fd < 0 as libc::c_int
+	if (BUFFER_SIZE as libc::c_int) < 1 as libc::c_int
+		|| fd > 10240 as libc::c_int
+		|| fd < 0 as libc::c_int
 	{
 		return 0 as *mut libc::c_char;
 	}
-	static mut static_buffer: [[libc::c_char; 21]; 10240] = [[0; 21]; 10240];
+	static mut static_buffer: [[libc::c_char; BUFFER_SIZE + 1]; 10240] =
+		[[0; BUFFER_SIZE + 1]; 10240];
 	let mut count: libc::c_int = 0 as libc::c_int;
 	while static_buffer[fd as usize][count as usize] as libc::c_int != '\0' as i32
 		&& static_buffer[fd as usize][count as usize] as libc::c_int != '\n' as i32
@@ -257,7 +241,7 @@ pub unsafe extern "C" fn get_next_line(mut fd: libc::c_int) -> *mut libc::c_char
 		count += 1;
 	}
 	let mut return_line: *mut libc::c_char = 0 as *mut libc::c_char;
-	if count <= 20 as libc::c_int
+	if count <= BUFFER_SIZE as libc::c_int
 		&& static_buffer[fd as usize][count as usize] as libc::c_int == '\n' as i32
 	{
 		return terminated_line_copy(read_buffer((static_buffer[fd as usize]).as_mut_ptr()));
