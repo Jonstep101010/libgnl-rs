@@ -1,4 +1,5 @@
-use get_next_line::get_next_line::get_next_line;
+use get_next_line::get_next_line::get_next_line_broken;
+use get_next_line::c2rust_gnl::get_next_line;
 use std::io::Write;
 
 ///
