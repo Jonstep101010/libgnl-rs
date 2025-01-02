@@ -102,7 +102,7 @@ unsafe extern "C" fn shift_static_buffer(mut static_buffer: *mut libc::c_char) {
 #[unsafe(no_mangle)]
 unsafe extern "C" fn terminated_line_copy(mut return_line: *mut libc::c_char) -> *mut libc::c_char {
 	if return_line.is_null() {
-		return 0 as *mut libc::c_char;
+		return std::ptr::null_mut::<libc::c_char>();
 	}
 	unsafe {
 		let len: size_t = strlen(return_line);
@@ -112,7 +112,7 @@ unsafe extern "C" fn terminated_line_copy(mut return_line: *mut libc::c_char) ->
 		) as *mut libc::c_char;
 		if copy_return_line.is_null() {
 			free(return_line as *mut libc::c_void);
-			return 0 as *mut libc::c_char;
+			return std::ptr::null_mut::<libc::c_char>();
 		}
 		bzero(
 			copy_return_line as *mut libc::c_void,
@@ -124,7 +124,7 @@ unsafe extern "C" fn terminated_line_copy(mut return_line: *mut libc::c_char) ->
 			len,
 		);
 		free(return_line as *mut libc::c_void);
-		return copy_return_line;
+		copy_return_line
 	}
 }
 #[unsafe(no_mangle)]
@@ -146,12 +146,12 @@ unsafe extern "C" fn read_newln(
 		} else if bytes_read < 0 as libc::c_int as ssize_t
 			|| bytes_read == 0 as libc::c_int as ssize_t && *count == 0 as libc::c_int
 		{
-			*return_line = 0 as *mut libc::c_char;
+			*return_line = std::ptr::null_mut::<libc::c_char>();
 			bzero(
 				static_buffer as *mut libc::c_void,
 				(BUFFER_SIZE as libc::c_int + 1 as libc::c_int) as libc::c_ulong,
 			);
-			return 0 as *mut libc::c_char;
+			return std::ptr::null_mut::<libc::c_char>();
 		}
 		let mut newline_pos: *const libc::c_char = strchr(temp_buffer.as_mut_ptr(), '\n' as i32);
 		if !newline_pos.is_null()
@@ -162,7 +162,7 @@ unsafe extern "C" fn read_newln(
 				::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
 			) as *mut libc::c_char;
 			if (*return_line).is_null() {
-				return 0 as *mut libc::c_char;
+				return std::ptr::null_mut::<libc::c_char>();
 			}
 			memcpy(
 				*return_line as *mut libc::c_void,
@@ -203,7 +203,7 @@ unsafe extern "C" fn read_newln(
 				);
 			}
 		}
-		return *return_line;
+		*return_line
 	}
 }
 #[unsafe(no_mangle)]
@@ -214,7 +214,7 @@ unsafe extern "C" fn read_buffer(mut static_buffer: *mut libc::c_char) -> *mut l
 			::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
 		) as *mut libc::c_char;
 		if line_staticbuffer.is_null() {
-			return 0 as *mut libc::c_char;
+			return std::ptr::null_mut::<libc::c_char>();
 		}
 		let mut newline_pos: *const libc::c_char =
 			strchr(static_buffer as *const libc::c_char, '\n' as i32);
@@ -226,7 +226,7 @@ unsafe extern "C" fn read_buffer(mut static_buffer: *mut libc::c_char) -> *mut l
 			len,
 		);
 		shift_static_buffer(static_buffer);
-		return line_staticbuffer;
+		line_staticbuffer
 	}
 }
 #[unsafe(no_mangle)]
@@ -235,7 +235,7 @@ pub unsafe extern "C" fn get_next_line(mut fd: libc::c_int) -> *mut libc::c_char
 		|| fd > 10240 as libc::c_int
 		|| fd < 0 as libc::c_int
 	{
-		return 0 as *mut libc::c_char;
+		return std::ptr::null_mut::<libc::c_char>();
 	}
 	unsafe {
 		static mut static_buffer: [[libc::c_char; BUFFER_SIZE + 1]; 10240] =
@@ -246,41 +246,43 @@ pub unsafe extern "C" fn get_next_line(mut fd: libc::c_int) -> *mut libc::c_char
 		{
 			count += 1;
 		}
-		let mut return_line: *mut libc::c_char = 0 as *mut libc::c_char;
+		let mut return_line: *mut libc::c_char = std::ptr::null_mut::<libc::c_char>();
 		if count <= BUFFER_SIZE as libc::c_int
 			&& static_buffer[fd as usize][count as usize] as libc::c_int == '\n' as i32
 		{
 			return terminated_line_copy(read_buffer((static_buffer[fd as usize]).as_mut_ptr()));
 		}
-		return terminated_line_copy(read_newln(
+		terminated_line_copy(read_newln(
 			fd,
 			&mut count,
 			(static_buffer[fd as usize]).as_mut_ptr(),
 			&mut return_line,
-		));
+		))
 	}
 }
 unsafe fn main_0() -> libc::c_int {
-	fprintf(
-		__stderrp,
-		b"%s\n\0" as *const u8 as *const libc::c_char,
-		getcwd(0 as *mut libc::c_char, 0 as libc::c_int as size_t),
-	);
-	let mut fd: libc::c_int = open(
-		b"./.clang-tidy\0" as *const u8 as *const libc::c_char,
-		0 as libc::c_int,
-	);
-	let mut line: *mut libc::c_char = get_next_line(fd);
-	while !line.is_null() {
+	unsafe {
 		fprintf(
 			__stderrp,
 			b"%s\n\0" as *const u8 as *const libc::c_char,
-			line,
+			getcwd(std::ptr::null_mut::<libc::c_char>(), 0 as libc::c_int as size_t),
 		);
-		free(line as *mut libc::c_void);
-		line = get_next_line(fd);
+		let mut fd: libc::c_int = open(
+			b"./.clang-tidy\0" as *const u8 as *const libc::c_char,
+			0 as libc::c_int,
+		);
+		let mut line: *mut libc::c_char = get_next_line(fd);
+		while !line.is_null() {
+			fprintf(
+				__stderrp,
+				b"%s\n\0" as *const u8 as *const libc::c_char,
+				line,
+			);
+			free(line as *mut libc::c_void);
+			line = get_next_line(fd);
+		}
+		0
 	}
-	return 0;
 }
 pub fn main() {
 	unsafe { ::std::process::exit(main_0() as i32) }
