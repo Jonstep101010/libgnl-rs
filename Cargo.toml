@@ -21,8 +21,7 @@ autobins = false
 name = "get_next_line"
 path = "src/libgnl.rs"
 crate-type = ["staticlib"]
-# for testing in rust
-# crate-type = ["rlib"]
+# for testing in rust we need an rlib (see build.rs)
 [dependencies]
 libc= "0.2"
 libft_rs = { package = "libft_rs", git= "https://github.com/Jonstep101010/libft-rs", branch = "main" }
