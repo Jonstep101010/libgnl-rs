@@ -9,10 +9,20 @@ publish = false
 edition = "2024"
 autobins = false
 
+# [profile.dev]
+# strip = "debuginfo"
+# debug = false
+# lto = false
+# overflow-checks = false
+# panic = "abort"
+# incremental = false
+
 [lib]
 name = "get_next_line"
 path = "src/libgnl.rs"
-crate-type = ["staticlib", "rlib"]
+crate-type = ["staticlib"]
+# for testing in rust
+# crate-type = ["rlib"]
 [dependencies]
 libc= "0.2"
 libft_rs = { package = "libft_rs", git= "https://github.com/Jonstep101010/libft-rs", branch = "main" }

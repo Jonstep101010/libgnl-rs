@@ -1,6 +1,7 @@
-use get_next_line::get_next_line::get_next_line_broken;
+// use get_next_line::old_broken::gnl_broken;
 use get_next_line::c2rust_gnl::get_next_line;
 use std::io::Write;
+
 
 ///
 /// running with miri:
@@ -19,7 +20,7 @@ fn gnl_basic() {
 
 		let path = CString::new("tests/test.txt").unwrap();
 		let fd = libc::open(path.as_ptr(), libc::O_RDONLY);
-		let mut line: *mut libc::c_char = get_next_line(fd);
+		let mut line: *mut libc::c_char = get_next_line::c2rust_gnl::get_next_line(fd);
 		let mut my_str = String::new();
 		while !line.is_null() {
 			let line_str = std::ffi::CStr::from_ptr(line).to_str().unwrap();
