@@ -118,16 +118,13 @@ unsafe extern "C" fn terminated_line_copy(mut return_line: *mut libc::c_char) ->
 			drop_in_place(return_line);
 			return std::ptr::null_mut::<libc::c_char>();
 		}
-		bzero(
-			copy_return_line as *mut libc::c_void,
-			len.wrapping_add(1 as libc::c_int as size_t),
-		);
+		// bzero(copy_return_line as *mut libc::c_void, len + 1);
 		// memcpy(
 		// 	copy_return_line as *mut libc::c_void,
 		// 	return_line as *const libc::c_void,
 		// 	len,
 		// );
-		std::ptr::copy_nonoverlapping(return_line, copy_return_line, len as usize);
+		std::ptr::copy_nonoverlapping(return_line, copy_return_line, (len + 1) as usize);
 		// free(return_line as *mut libc::c_void);
 		drop_in_place(return_line);
 		copy_return_line
