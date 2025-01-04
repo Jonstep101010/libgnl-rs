@@ -110,7 +110,7 @@ unsafe fn terminated_line_copy(mut return_line: Option<*mut u8>) -> *mut core::f
 		malloc((len + 1).wrapping_mul(::core::mem::size_of::<core::ffi::c_char>()) as size_t)
 			as *mut core::ffi::c_char;
 	if !copy_return_line.is_null() {
-		std::ptr::copy_nonoverlapping(return_line.unwrap() as *const i8, copy_return_line, len + 1);
+		copy_return_line.copy_from_nonoverlapping(return_line.unwrap() as *const i8, len + 1);
 	}
 	// free(return_line as *mut libc::c_void);
 	drop_in_place(return_line.unwrap());
@@ -138,7 +138,9 @@ unsafe fn copy_into_return_line(
 				}
 			}
 		};
-		std::ptr::copy_nonoverlapping(temp_buffer, return_line.add(*count), len);
+		return_line
+			.add(*count)
+			.copy_from_nonoverlapping(temp_buffer, len);
 	}
 	return_line
 }
@@ -233,8 +235,8 @@ unsafe fn read_buffer(static_buffer: *mut core::ffi::c_char) -> Option<*mut u8> 
 	}
 	let newline_pos: *const core::ffi::c_char =
 		strchr(static_buffer as *const core::ffi::c_char, '\n' as i32);
-	let len: size_t = (newline_pos.offset_from(static_buffer) as libc::c_long + 1_i64) as size_t;
-	std::ptr::copy_nonoverlapping(static_buffer, line_staticbuffer, len as usize);
+	let len = (newline_pos.offset_from(static_buffer) as libc::c_long + 1_i64) as usize;
+	line_staticbuffer.copy_from_nonoverlapping(static_buffer, len);
 	shift_static_buffer(static_buffer as *mut u8);
 	Some(line_staticbuffer as *mut u8)
 }
