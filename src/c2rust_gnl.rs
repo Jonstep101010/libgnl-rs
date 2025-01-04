@@ -9,7 +9,7 @@
 )]
 #![allow(static_mut_refs)]
 
-use std::ptr::drop_in_place;
+use std::{cmp::Ordering, ptr::drop_in_place};
 include!(concat!(env!("OUT_DIR"), "/buffer_size.rs"));
 
 unsafe extern "C" {
@@ -148,7 +148,7 @@ unsafe fn copy_into_return_line(
 }
 #[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
-unsafe extern "C" fn read_newln(
+unsafe fn read_newln(
 	fd: usize,
 	mut count: &mut usize,
 	mut static_buffer: *mut core::ffi::c_char,
@@ -160,38 +160,54 @@ unsafe extern "C" fn read_newln(
 		temp_buffer.as_mut_ptr() as *mut libc::c_void,
 		BUFFER_SIZE as size_t,
 	);
-	if bytes_read > 0 {
-		*count += BUFFER_SIZE;
-	} else if bytes_read < 0 || bytes_read == 0 && *count == 0 {
-		// *return_line = std::ptr::null_mut::<core::ffi::c_char>();
-		// we assign so we do not need to assign by deref if returning to caller immediately
-		static_buffer.write_bytes(0, BUFFER_SIZE + 1);
-		return std::ptr::null_mut::<core::ffi::c_char>();
-	}
-	let temp_buffer_c_str = std::ffi::CStr::from_ptr(temp_buffer.as_ptr());
-	// let mut newline_pos: *const core::ffi::c_char = strchr(temp_buffer.as_mut_ptr(), '\n' as i32);
-	let newline_pos = temp_buffer_c_str.bytes().find(|&c| c == b'\n');
-	// if !newline_pos.is_null() || bytes_read == 0 && *count != 0 as core::ffi::c_int {
-	if (*return_line).is_null() && (newline_pos.is_some() || bytes_read == 0 && *count != 0) {
-		*return_line = calloc(
-			(*count + 1) as libc::c_ulong,
-			::core::mem::size_of::<core::ffi::c_char>() as libc::c_ulong,
-		) as *mut core::ffi::c_char;
-		if (*return_line).is_null() {
+	match bytes_read.cmp(&0) {
+		Ordering::Equal if *count != 0 => {
+			*return_line = calloc(
+				(*count + 1) as libc::c_ulong,
+				::core::mem::size_of::<core::ffi::c_char>() as libc::c_ulong,
+			) as *mut core::ffi::c_char;
+			if (*return_line).is_null() {
+				return std::ptr::null_mut::<core::ffi::c_char>();
+			}
+			// copy the length of the terminated charptr into return_line (allocated)
+			(*return_line).copy_from_nonoverlapping(
+				static_buffer,
+				// strlen(static_buffer as *const core::ffi::c_char) as usize,
+				std::ffi::CStr::from_ptr(static_buffer).count_bytes(),
+			);
+			// copy length - 1 of read buffer into static_buffer
+			static_buffer.copy_from_nonoverlapping(temp_buffer.as_ptr(), BUFFER_SIZE);
+			shift_static_buffer(static_buffer);
+		}
+		Ordering::Greater => {
+			*count += BUFFER_SIZE;
+			let newline_pos = strchr(temp_buffer.as_ptr(), '\n' as i32);
+			if !newline_pos.is_null() {
+				*return_line = calloc(
+					(*count + 1) as libc::c_ulong,
+					::core::mem::size_of::<core::ffi::c_char>() as libc::c_ulong,
+				) as *mut core::ffi::c_char;
+				if (*return_line).is_null() {
+					return std::ptr::null_mut::<core::ffi::c_char>();
+				}
+				// copy the length of the terminated charptr into return_line (allocated)
+				(*return_line).copy_from_nonoverlapping(
+					static_buffer,
+					// strlen(static_buffer as *const core::ffi::c_char) as usize,
+					std::ffi::CStr::from_ptr(static_buffer).count_bytes(),
+				);
+				// copy length - 1 of read buffer into static_buffer
+				static_buffer.copy_from_nonoverlapping(temp_buffer.as_ptr(), BUFFER_SIZE);
+				shift_static_buffer(static_buffer);
+			}
+			if newline_pos.is_null() {
+				*return_line = read_newln(fd, count, static_buffer, return_line);
+			}
+		}
+		Ordering::Less | Ordering::Equal => {
+			static_buffer.write_bytes(0, BUFFER_SIZE + 1);
 			return std::ptr::null_mut::<core::ffi::c_char>();
 		}
-		// copy the length of the terminated charptr into return_line (allocated)
-		(*return_line).copy_from_nonoverlapping(
-			static_buffer,
-			// strlen(static_buffer as *const core::ffi::c_char) as usize,
-			std::ffi::CStr::from_ptr(static_buffer).count_bytes(),
-		);
-		// copy length - 1 of read buffer into static_buffer
-		static_buffer.copy_from_nonoverlapping(temp_buffer.as_ptr(), BUFFER_SIZE);
-		shift_static_buffer(static_buffer);
-	// } else if newline_pos.is_null() && bytes_read != 0 {
-	} else if (*return_line).is_null() && newline_pos.is_none() && bytes_read != 0 {
-		*return_line = read_newln(fd, count, static_buffer, return_line);
 	}
 	copy_into_return_line(count, *return_line, temp_buffer.as_ptr())
 }
