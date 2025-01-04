@@ -92,17 +92,7 @@ unsafe extern "C" fn shift_static_buffer(mut static_buffer: *mut core::ffi::c_ch
 		}
 		let start = newline_pos.offset_from(static_buffer) + 1;
 		let shift_len: usize = (BUFFER_SIZE + 1).wrapping_sub_signed(start);
-		// memmove(
-		// 	static_buffer as *mut libc::c_void,
-		// 	static_buffer.offset(start as isize) as *const libc::c_void,
-		// 	shift_len,
-		// );
 		std::ptr::copy(static_buffer.offset(start), static_buffer, shift_len);
-		// memset(
-		// 	static_buffer.offset(shift_len as isize) as *mut libc::c_void,
-		// 	0 as core::ffi::c_int,
-		// 	(BUFFER_SIZE as core::ffi::c_int as size_t).wrapping_sub(shift_len),
-		// );
 		static_buffer
 			.add(shift_len)
 			.write_bytes(0, (BUFFER_SIZE).wrapping_sub(shift_len));
@@ -125,12 +115,6 @@ unsafe extern "C" fn terminated_line_copy(
 			drop_in_place(return_line);
 			return std::ptr::null_mut::<core::ffi::c_char>();
 		}
-		// bzero(copy_return_line as *mut libc::c_void, len + 1);
-		// memcpy(
-		// 	copy_return_line as *mut libc::c_void,
-		// 	return_line as *const libc::c_void,
-		// 	len,
-		// );
 		std::ptr::copy_nonoverlapping(return_line, copy_return_line, len + 1);
 		// free(return_line as *mut libc::c_void);
 		drop_in_place(return_line);
@@ -156,10 +140,6 @@ unsafe extern "C" fn read_newln(
 		} else if bytes_read < 0 || bytes_read == 0 && *count == 0 {
 			// *return_line = std::ptr::null_mut::<core::ffi::c_char>();
 			// we assign so we do not need to assign by deref if returning to caller immediately
-			// bzero(
-			// 	static_buffer as *mut libc::c_void,
-			// 	(BUFFER_SIZE as core::ffi::c_int + 1 as core::ffi::c_int) as libc::c_ulong,
-			// );
 			static_buffer.write_bytes(0, BUFFER_SIZE + 1);
 			return std::ptr::null_mut::<core::ffi::c_char>();
 		}
@@ -175,22 +155,12 @@ unsafe extern "C" fn read_newln(
 			if (*return_line).is_null() {
 				return std::ptr::null_mut::<core::ffi::c_char>();
 			}
-			// memcpy(
-			// 	*return_line as *mut libc::c_void,
-			// 	static_buffer as *const libc::c_void,
-			// 	strlen(static_buffer as *const core::ffi::c_char),
-			// );
 			std::ptr::copy_nonoverlapping(
 				static_buffer,
 				*return_line,
 				// strlen(static_buffer as *const core::ffi::c_char) as usize,
 				std::ffi::CStr::from_ptr(static_buffer).count_bytes(),
 			);
-			// memcpy(
-			// 	static_buffer as *mut libc::c_void,
-			// 	temp_buffer.as_mut_ptr() as *const libc::c_void,
-			// 	BUFFER_SIZE as core::ffi::c_int as libc::c_ulong,
-			// );
 			std::ptr::copy_nonoverlapping(temp_buffer.as_mut_ptr(), static_buffer, BUFFER_SIZE);
 			shift_static_buffer(static_buffer);
 		// } else if newline_pos.is_null() && bytes_read != 0 {
@@ -210,11 +180,6 @@ unsafe extern "C" fn read_newln(
 				} else {
 					BUFFER_SIZE as i64
 				}) as core::ffi::c_int;
-				// memcpy(
-				// 	(*return_line).offset(*count as isize) as *mut libc::c_void,
-				// 	temp_buffer.as_mut_ptr() as *const libc::c_void,
-				// 	(len + 1) as libc::c_ulong,
-				// );
 				std::ptr::copy_nonoverlapping(
 					temp_buffer.as_mut_ptr(),
 					(*return_line).add(*count),
@@ -226,11 +191,6 @@ unsafe extern "C" fn read_newln(
 					(*return_line).add(*count),
 					BUFFER_SIZE,
 				);
-				// memcpy(
-				// 	(*return_line).offset(*count as isize) as *mut libc::c_void,
-				// 	temp_buffer.as_mut_ptr() as *const libc::c_void,
-				// 	BUFFER_SIZE as core::ffi::c_int as libc::c_ulong,
-				// );
 			}
 		}
 		*return_line
@@ -252,11 +212,6 @@ unsafe extern "C" fn read_buffer(
 			strchr(static_buffer as *const core::ffi::c_char, '\n' as i32);
 		let len: size_t =
 			(newline_pos.offset_from(static_buffer) as libc::c_long + 1_i64) as size_t;
-		// memcpy(
-		// 	line_staticbuffer as *mut libc::c_void,
-		// 	static_buffer as *const libc::c_void,
-		// 	len,
-		// );
 		std::ptr::copy_nonoverlapping(static_buffer, line_staticbuffer, len as usize);
 		shift_static_buffer(static_buffer);
 		line_staticbuffer
