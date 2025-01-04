@@ -1,0 +1,4 @@
+[submodule "c-gnltests"]
+	path = c-gnltests
+	url = https://github.com/Jonstep101010/francinette.git
+	branch = master
