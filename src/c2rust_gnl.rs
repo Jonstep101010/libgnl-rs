@@ -102,33 +102,6 @@ unsafe fn terminated_line_copy(mut return_line: Option<*mut u8>) -> *mut c_char 
 	copy_return_line
 }
 
-///
-/// returns: `return_line`
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn copy_into_return_line(
-	count: &mut usize,
-	return_line: *mut u8,
-	temp_buffer: *const u8,
-) -> *mut u8 {
-	if *temp_buffer != b'\0' {
-		*count -= BUFFER_SIZE;
-		let newline: *const u8 = strchr(temp_buffer as *const i8, '\n' as i32) as *const u8;
-		let len = match newline.is_null() {
-			true => BUFFER_SIZE,
-			false => {
-				if (newline.offset_from(temp_buffer)) < BUFFER_SIZE as isize {
-					newline.offset_from(temp_buffer) as usize + 1
-				} else {
-					BUFFER_SIZE + 1
-				}
-			}
-		};
-		return_line
-			.add(*count)
-			.copy_from_nonoverlapping(temp_buffer, len);
-	}
-	return_line
-}
 #[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
 unsafe fn read_newln(
@@ -137,13 +110,13 @@ unsafe fn read_newln(
 	static_buffer: *mut u8,
 	return_line: &mut Option<*mut u8>,
 ) -> Option<*mut u8> {
-	let mut temp_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
-	let read_result = nix::unistd::read(fd, temp_buffer.as_mut_slice());
+	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
+	let read_result = nix::unistd::read(fd, read_buffer.as_mut_slice());
 	unsafe fn alloc_newline(
 		count: usize,
 		static_buffer: *mut u8,
 		return_line: &mut Option<*mut u8>,
-		temp_buffer: *const u8,
+		read_buffer: *const u8,
 	) -> Option<*mut u8> {
 		let alloc = calloc(
 			(count + 1) as c_ulong,
@@ -158,7 +131,7 @@ unsafe fn read_newln(
 			libc::strlen(static_buffer as *const i8) as usize,
 		);
 		// copy length - 1 of read buffer into static_buffer
-		static_buffer.copy_from_nonoverlapping(temp_buffer, BUFFER_SIZE);
+		static_buffer.copy_from_nonoverlapping(read_buffer, BUFFER_SIZE);
 		shift_static_buffer(static_buffer);
 		*return_line = Some(alloc);
 		*return_line
@@ -167,17 +140,18 @@ unsafe fn read_newln(
 		static_buffer.write_bytes(0, BUFFER_SIZE + 1);
 		return None;
 	}
+	let read_buffer = read_buffer.as_ptr();
 	match read_result.unwrap() {
 		0 if *count != 0 => {
 			// EOF reached
-			alloc_newline(*count, static_buffer, return_line, temp_buffer.as_ptr())?;
+			alloc_newline(*count, static_buffer, return_line, read_buffer)?;
 		}
 		_ => {
 			// read buffer has data
 			*count += BUFFER_SIZE;
-			let newline_pos = strchr(temp_buffer.as_ptr() as *const i8, '\n' as i32);
+			let newline_pos = strchr(read_buffer as *const i8, '\n' as i32);
 			if !newline_pos.is_null()
-				&& alloc_newline(*count, static_buffer, return_line, temp_buffer.as_ptr()).is_none()
+				&& alloc_newline(*count, static_buffer, return_line, read_buffer).is_none()
 			{
 				return None;
 			}
@@ -186,11 +160,24 @@ unsafe fn read_newln(
 			}
 		}
 	}
-	Some(copy_into_return_line(
-		count,
-		return_line.unwrap(),
-		temp_buffer.as_ptr(),
-	))
+	if *read_buffer != b'\0' {
+		*count -= BUFFER_SIZE;
+		let newline: *const u8 = strchr(read_buffer as *const i8, '\n' as i32) as *const u8;
+		return_line.unwrap().add(*count).copy_from_nonoverlapping(
+			read_buffer,
+			match newline.is_null() {
+				true => BUFFER_SIZE,
+				false => {
+					if (newline.offset_from(read_buffer)) < BUFFER_SIZE as isize {
+						newline.offset_from(read_buffer) as usize + 1
+					} else {
+						BUFFER_SIZE + 1
+					}
+				}
+			},
+		);
+	}
+	*return_line
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
