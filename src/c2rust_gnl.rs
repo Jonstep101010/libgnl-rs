@@ -79,7 +79,7 @@ unsafe extern "C" fn shift_static_buffer(mut static_buffer: *mut libc::c_char) {
 		let mut newline_pos: *const libc::c_char =
 			strchr(static_buffer as *const libc::c_char, '\n' as i32);
 		if newline_pos.is_null() {
-			static_buffer.write_bytes('\0' as u8, BUFFER_SIZE);
+			static_buffer.write_bytes(b'\0', BUFFER_SIZE);
 			return;
 		}
 		let start = newline_pos.offset_from(static_buffer) + 1;
@@ -100,7 +100,7 @@ unsafe extern "C" fn shift_static_buffer(mut static_buffer: *mut libc::c_char) {
 		// 	(BUFFER_SIZE as libc::c_int as size_t).wrapping_sub(shift_len),
 		// );
 		static_buffer
-			.offset(shift_len as isize)
+			.add(shift_len)
 			.write_bytes(0, (BUFFER_SIZE).wrapping_sub(shift_len));
 	}
 }
@@ -126,7 +126,7 @@ unsafe extern "C" fn terminated_line_copy(mut return_line: *mut libc::c_char) ->
 		// 	return_line as *const libc::c_void,
 		// 	len,
 		// );
-		std::ptr::copy_nonoverlapping(return_line, copy_return_line, (len + 1) as usize);
+		std::ptr::copy_nonoverlapping(return_line, copy_return_line, len + 1);
 		// free(return_line as *mut libc::c_void);
 		drop_in_place(return_line);
 		copy_return_line
@@ -242,7 +242,7 @@ unsafe extern "C" fn read_buffer(mut static_buffer: *mut libc::c_char) -> *mut l
 		let mut newline_pos: *const libc::c_char =
 			strchr(static_buffer as *const libc::c_char, '\n' as i32);
 		let len: size_t =
-			(newline_pos.offset_from(static_buffer) as libc::c_long + 1 as i64) as size_t;
+			(newline_pos.offset_from(static_buffer) as libc::c_long + 1_i64) as size_t;
 		// memcpy(
 		// 	line_staticbuffer as *mut libc::c_void,
 		// 	static_buffer as *const libc::c_void,
