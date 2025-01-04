@@ -27,19 +27,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e9489c2807c139ffd9c1794f4af0ebe86a828db53ecdc7fea2111d0fed085d1"
 
 [[package]]
-name = "libft_rs"
-version = "0.0.0"
-source = "git+https://github.com/Jonstep101010/libft-rs?branch=main#f6141be8f053488212a9001a8f8b50f1d46c6375"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "libgnl_rs"
 version = "0.0.0"
 dependencies = [
  "libc",
- "libft_rs",
  "nix",
 ]
 

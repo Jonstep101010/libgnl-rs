@@ -140,36 +140,30 @@ unsafe fn read_newln(
 		static_buffer.write_bytes(0, BUFFER_SIZE + 1);
 		return None;
 	}
-	let read_buffer = read_buffer.as_ptr();
 	match read_result.unwrap() {
 		0 if *count != 0 => {
 			// EOF reached
-			alloc_newline(*count, static_buffer, return_line, read_buffer)?;
+			alloc_newline(*count, static_buffer, return_line, read_buffer.as_ptr())?;
 		}
 		_ => {
 			// read buffer has data
 			*count += BUFFER_SIZE;
-			let newline_pos = strchr(read_buffer as *const i8, '\n' as i32);
-			if !newline_pos.is_null()
-				&& alloc_newline(*count, static_buffer, return_line, read_buffer).is_none()
-			{
-				return None;
-			}
-			if newline_pos.is_null() {
+			if let Some(_newline_pos) = read_buffer.as_slice().iter().position(|&c| c == b'\n') {
+				alloc_newline(*count, static_buffer, return_line, read_buffer.as_ptr())?;
+			} else {
 				*return_line = read_newln(fd, count, static_buffer, return_line);
 			}
 		}
 	}
-	if *read_buffer != b'\0' {
+	if (*read_buffer.as_ptr()) != b'\0' {
 		*count -= BUFFER_SIZE;
-		let newline: *const u8 = strchr(read_buffer as *const i8, '\n' as i32) as *const u8;
 		return_line.unwrap().add(*count).copy_from_nonoverlapping(
-			read_buffer,
-			match newline.is_null() {
-				true => BUFFER_SIZE,
-				false => {
-					if (newline.offset_from(read_buffer)) < BUFFER_SIZE as isize {
-						newline.offset_from(read_buffer) as usize + 1
+			read_buffer.as_ptr(),
+			match read_buffer.as_slice().iter().position(|&c| c == b'\n') {
+				None => BUFFER_SIZE,
+				Some(newline_idx) => {
+					if newline_idx < BUFFER_SIZE {
+						newline_idx + 1
 					} else {
 						BUFFER_SIZE + 1
 					}
