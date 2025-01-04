@@ -9,61 +9,12 @@ use std::{
 include!(concat!(env!("OUT_DIR"), "/buffer_size.rs"));
 
 unsafe extern "C" {
-	pub type __sFILEX;
 	fn malloc(_: c_ulong) -> *mut libc::c_void;
 	fn calloc(_: c_ulong, _: c_ulong) -> *mut libc::c_void;
 	// fn free(_: *mut libc::c_void);
-	// fn memcpy(_: *mut libc::c_void, _: *const libc::c_void, _: c_ulong) -> *mut libc::c_void;
-	// fn memmove(_: *mut libc::c_void, _: *const libc::c_void, _: c_ulong)
-	// -> *mut libc::c_void;
-	// fn memset(_: *mut libc::c_void, _: c_int, _: c_ulong) -> *mut libc::c_void;
 	fn strchr(_: *const c_char, _: c_int) -> *mut c_char;
-	// fn strlen(_: *const c_char) -> c_ulong;
-	// fn bzero(_: *mut libc::c_void, _: c_ulong);
-	// only used if building with main
-	// fn getcwd(_: *mut c_char, _: size_t) -> *mut c_char;
-	// fn open(_: *const c_char, _: c_int, _: ...) -> c_int;
-	// static mut __stderrp: *mut FILE;
-	// fn fprintf(_: *mut FILE, _: *const c_char, _: ...) -> c_int;
 }
-pub type __int64_t = libc::c_longlong;
-pub type __darwin_size_t = c_ulong;
-pub type __darwin_ssize_t = libc::c_long;
-pub type __darwin_off_t = __int64_t;
-pub type size_t = __darwin_size_t;
-pub type ssize_t = __darwin_ssize_t;
-pub type fpos_t = __darwin_off_t;
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct __sbuf {
-	pub _base: *mut libc::c_uchar,
-	pub _size: c_int,
-}
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct __sFILE {
-	pub _p: *mut libc::c_uchar,
-	pub _r: c_int,
-	pub _w: c_int,
-	pub _flags: libc::c_short,
-	pub _file: libc::c_short,
-	pub _bf: __sbuf,
-	pub _lbfsize: c_int,
-	pub _cookie: *mut libc::c_void,
-	pub _close: Option<unsafe extern "C" fn(*mut libc::c_void) -> c_int>,
-	pub _read: Option<unsafe extern "C" fn(*mut libc::c_void, *mut c_char, c_int) -> c_int>,
-	pub _seek: Option<unsafe extern "C" fn(*mut libc::c_void, fpos_t, c_int) -> fpos_t>,
-	pub _write: Option<unsafe extern "C" fn(*mut libc::c_void, *const c_char, c_int) -> c_int>,
-	pub _ub: __sbuf,
-	pub _extra: *mut __sFILEX,
-	pub _ur: c_int,
-	pub _ubuf: [libc::c_uchar; 3],
-	pub _nbuf: [libc::c_uchar; 1],
-	pub _lb: __sbuf,
-	pub _blksize: c_int,
-	pub _offset: fpos_t,
-}
-pub type FILE = __sFILE;
+
 #[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
 unsafe fn shift_static_buffer(static_buffer: *mut u8) {
@@ -93,7 +44,7 @@ unsafe fn terminated_line_copy(mut return_line: Option<*mut u8>) -> *mut c_char 
 	// let len = strlen(return_line);
 	let len = std::ffi::CStr::from_ptr(return_line.unwrap() as *const i8).count_bytes();
 	let mut copy_return_line: *mut c_char =
-		malloc((len + 1).wrapping_mul(::core::mem::size_of::<c_char>()) as size_t) as *mut c_char;
+		malloc((len + 1).wrapping_mul(::core::mem::size_of::<c_char>()) as c_ulong) as *mut c_char;
 	if !copy_return_line.is_null() {
 		copy_return_line.copy_from_nonoverlapping(return_line.unwrap() as *const i8, len + 1);
 	}
@@ -176,7 +127,7 @@ unsafe fn read_newln(
 
 #[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
-unsafe fn read_buffer(static_buffer: *mut u8) -> Option<*mut u8> {
+unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut u8> {
 	let line_staticbuffer: *mut c_char = calloc(
 		(BUFFER_SIZE + 1) as c_ulong,
 		::core::mem::size_of::<c_char>() as c_ulong,
@@ -184,10 +135,13 @@ unsafe fn read_buffer(static_buffer: *mut u8) -> Option<*mut u8> {
 	if line_staticbuffer.is_null() {
 		return None;
 	}
-	let newline_pos = strchr(static_buffer as *const c_char, '\n' as i32) as *const u8;
-	let len = (newline_pos.offset_from(static_buffer) as libc::c_long + 1_i64) as usize;
-	line_staticbuffer.copy_from_nonoverlapping(static_buffer as *mut i8, len);
-	shift_static_buffer(static_buffer);
+	let newline_idx = static_buffer
+		.as_slice()
+		.iter()
+		.position(|&c| c == b'\n')
+		.unwrap();
+	line_staticbuffer.copy_from_nonoverlapping(static_buffer.as_ptr() as *mut i8, newline_idx + 1);
+	shift_static_buffer(static_buffer.as_mut_ptr());
 	Some(line_staticbuffer as *mut u8)
 }
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -207,7 +161,7 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 	let mut return_line: Option<*mut u8> = None;
 	terminated_line_copy(
 		if count <= BUFFER_SIZE && static_buffer[fd][count] as c_int == '\n' as i32 {
-			read_buffer((static_buffer[fd]).as_mut_ptr())
+			read_buffer(&mut (static_buffer[fd]))
 		} else {
 			read_newln(
 				fd as RawFd,
