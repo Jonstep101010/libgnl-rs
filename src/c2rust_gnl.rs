@@ -81,23 +81,22 @@ pub struct __sFILE {
 	pub _offset: fpos_t,
 }
 pub type FILE = __sFILE;
+#[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
-unsafe extern "C" fn shift_static_buffer(static_buffer: *mut core::ffi::c_char) {
-	unsafe {
-		let mut newline_pos: *const core::ffi::c_char =
-			strchr(static_buffer as *const core::ffi::c_char, '\n' as i32);
-		if newline_pos.is_null() {
-			static_buffer.write_bytes(b'\0', BUFFER_SIZE);
-		} else {
-			// get index after '\n'
-			let start = newline_pos.offset_from(static_buffer) + 1;
-			let shift_len: usize = (BUFFER_SIZE + 1).wrapping_sub_signed(start);
-			// shift contents from after '\n' to beginning
-			std::ptr::copy(static_buffer.offset(start), static_buffer, shift_len);
-			static_buffer
-				.add(shift_len)
-				.write_bytes(b'\0', (BUFFER_SIZE).wrapping_sub(shift_len));
-		}
+unsafe fn shift_static_buffer(static_buffer: *mut core::ffi::c_char) {
+	let mut newline_pos: *const core::ffi::c_char =
+		strchr(static_buffer as *const core::ffi::c_char, '\n' as i32);
+	if newline_pos.is_null() {
+		static_buffer.write_bytes(b'\0', BUFFER_SIZE);
+	} else {
+		// get index after '\n'
+		let start = newline_pos.offset_from(static_buffer).wrapping_add(1);
+		let shift_len: usize = (BUFFER_SIZE + 1).wrapping_sub_signed(start);
+		// shift contents from after '\n' to beginning
+		static_buffer.copy_from(static_buffer.offset(start), shift_len);
+		static_buffer
+			.add(shift_len)
+			.write_bytes(b'\0', (BUFFER_SIZE).wrapping_sub(shift_len));
 	}
 }
 #[unsafe(no_mangle)]
@@ -147,6 +146,7 @@ unsafe fn copy_into_return_line(
 	}
 	return_line
 }
+#[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
 unsafe extern "C" fn read_newln(
 	fd: usize,
@@ -173,7 +173,7 @@ unsafe extern "C" fn read_newln(
 		// let mut newline_pos: *const core::ffi::c_char = strchr(temp_buffer.as_mut_ptr(), '\n' as i32);
 		let newline_pos = temp_buffer_c_str.bytes().find(|&c| c == b'\n');
 		// if !newline_pos.is_null() || bytes_read == 0 && *count != 0 as core::ffi::c_int {
-		if newline_pos.is_some() || bytes_read == 0 && *count != 0 {
+		if (*return_line).is_null() && (newline_pos.is_some() || bytes_read == 0 && *count != 0) {
 			*return_line = calloc(
 				(*count + 1) as libc::c_ulong,
 				::core::mem::size_of::<core::ffi::c_char>() as libc::c_ulong,
@@ -181,22 +181,30 @@ unsafe extern "C" fn read_newln(
 			if (*return_line).is_null() {
 				return std::ptr::null_mut::<core::ffi::c_char>();
 			}
-			std::ptr::copy_nonoverlapping(
+			// copy the length of the terminated charptr into return_line (allocated)
+			// std::ptr::copy_nonoverlapping(
+			// 	static_buffer,
+			// 	*return_line,
+			// 	// strlen(static_buffer as *const core::ffi::c_char) as usize,
+			// 	std::ffi::CStr::from_ptr(static_buffer).count_bytes(),
+			// );
+			(*return_line).copy_from_nonoverlapping(
 				static_buffer,
-				*return_line,
-				// strlen(static_buffer as *const core::ffi::c_char) as usize,
 				std::ffi::CStr::from_ptr(static_buffer).count_bytes(),
 			);
-			std::ptr::copy_nonoverlapping(temp_buffer.as_ptr(), static_buffer, BUFFER_SIZE);
+			// copy length - 1 of read buffer into static_buffer
+			// std::ptr::copy_nonoverlapping(temp_buffer.as_ptr(), static_buffer, BUFFER_SIZE);
+			static_buffer.copy_from_nonoverlapping(temp_buffer.as_ptr(), BUFFER_SIZE);
 			shift_static_buffer(static_buffer);
 		// } else if newline_pos.is_null() && bytes_read != 0 {
-		} else if newline_pos.is_none() && bytes_read != 0 {
+		} else if (*return_line).is_null() && newline_pos.is_none() && bytes_read != 0 {
 			*return_line = read_newln(fd, count, static_buffer, return_line);
 		}
 		copy_into_return_line(count, *return_line, temp_buffer.as_ptr())
 	}
 }
 
+#[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
 unsafe extern "C" fn read_buffer(
 	mut static_buffer: *mut core::ffi::c_char,
