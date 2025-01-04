@@ -1,5 +1,5 @@
 #![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
-#![allow(static_mut_refs)]
+#![allow(static_mut_refs, unsafe_op_in_unsafe_fn)]
 
 use std::{
 	ffi::{c_char, c_int, c_ulong},
@@ -15,7 +15,6 @@ unsafe extern "C" {
 	fn strchr(_: *const c_char, _: c_int) -> *mut c_char;
 }
 
-#[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
 unsafe fn shift_static_buffer(static_buffer: *mut u8) {
 	let newline_pos: *const c_char = strchr(static_buffer as *const c_char, '\n' as i32);
@@ -35,7 +34,6 @@ unsafe fn shift_static_buffer(static_buffer: *mut u8) {
 	}
 }
 #[allow(unused_mut)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
 unsafe fn terminated_line_copy(mut return_line: Option<*mut u8>) -> *mut c_char {
 	if return_line.is_none() {
@@ -53,7 +51,6 @@ unsafe fn terminated_line_copy(mut return_line: Option<*mut u8>) -> *mut c_char 
 	copy_return_line
 }
 
-#[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
 unsafe fn read_newln(
 	fd: RawFd,
@@ -125,7 +122,6 @@ unsafe fn read_newln(
 	*return_line
 }
 
-#[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
 unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut u8> {
 	let line_staticbuffer: *mut c_char = calloc(
@@ -144,7 +140,14 @@ unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut 
 	shift_static_buffer(static_buffer.as_mut_ptr());
 	Some(line_staticbuffer as *mut u8)
 }
-#[allow(unsafe_op_in_unsafe_fn)]
+
+///
+/// read a line from a file descriptor
+///
+/// # Safety
+/// This function is unsafe because it dereferences raw pointers and calls foreign functions.
+/// The caller must ensure that the `fd` is a valid file descriptor and that the buffer size is greater than 0.
+/// The caller must free the returned pointer when it is no longer needed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 	if (BUFFER_SIZE as c_int) < 1 as c_int || !(0..=10240).contains(&fd) {
