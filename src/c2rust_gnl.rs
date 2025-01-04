@@ -16,14 +16,15 @@ unsafe extern "C" {
 	pub type __sFILEX;
 	fn malloc(_: libc::c_ulong) -> *mut libc::c_void;
 	fn calloc(_: libc::c_ulong, _: libc::c_ulong) -> *mut libc::c_void;
-	fn free(_: *mut libc::c_void);
-	fn memcpy(_: *mut libc::c_void, _: *const libc::c_void, _: libc::c_ulong) -> *mut libc::c_void;
-	fn memmove(_: *mut libc::c_void, _: *const libc::c_void, _: libc::c_ulong)
-	-> *mut libc::c_void;
-	fn memset(_: *mut libc::c_void, _: libc::c_int, _: libc::c_ulong) -> *mut libc::c_void;
+	// fn free(_: *mut libc::c_void);
+	// fn memcpy(_: *mut libc::c_void, _: *const libc::c_void, _: libc::c_ulong) -> *mut libc::c_void;
+	// fn memmove(_: *mut libc::c_void, _: *const libc::c_void, _: libc::c_ulong)
+	// -> *mut libc::c_void;
+	// fn memset(_: *mut libc::c_void, _: libc::c_int, _: libc::c_ulong) -> *mut libc::c_void;
 	fn strchr(_: *const libc::c_char, _: libc::c_int) -> *mut libc::c_char;
-	fn strlen(_: *const libc::c_char) -> libc::c_ulong;
-	fn bzero(_: *mut libc::c_void, _: libc::c_ulong);
+	// fn strlen(_: *const libc::c_char) -> libc::c_ulong;
+	// fn bzero(_: *mut libc::c_void, _: libc::c_ulong);
+	// only used if building with main
 	fn getcwd(_: *mut libc::c_char, _: size_t) -> *mut libc::c_char;
 	fn read(_: libc::c_int, _: *mut libc::c_void, _: size_t) -> ssize_t;
 	fn open(_: *const libc::c_char, _: libc::c_int, _: ...) -> libc::c_int;
@@ -109,10 +110,11 @@ unsafe extern "C" fn terminated_line_copy(mut return_line: *mut libc::c_char) ->
 		return std::ptr::null_mut::<libc::c_char>();
 	}
 	unsafe {
-		let len: size_t = strlen(return_line);
+		// let len = strlen(return_line);
+		let len = std::ffi::CStr::from_ptr(return_line).count_bytes();
 		let mut copy_return_line: *mut libc::c_char = malloc(
-			len.wrapping_add(1 as libc::c_int as size_t)
-				.wrapping_mul(::core::mem::size_of::<libc::c_char>() as libc::c_ulong),
+			len.wrapping_add(1)
+				.wrapping_mul(::core::mem::size_of::<libc::c_char>()) as size_t,
 		) as *mut libc::c_char;
 		if copy_return_line.is_null() {
 			drop_in_place(return_line);
@@ -148,14 +150,18 @@ unsafe extern "C" fn read_newln(
 			*count += BUFFER_SIZE as libc::c_int;
 		} else if bytes_read < 0 || bytes_read == 0 && *count == 0 as libc::c_int {
 			*return_line = std::ptr::null_mut::<libc::c_char>();
-			bzero(
-				static_buffer as *mut libc::c_void,
-				(BUFFER_SIZE as libc::c_int + 1 as libc::c_int) as libc::c_ulong,
-			);
+			// bzero(
+			// 	static_buffer as *mut libc::c_void,
+			// 	(BUFFER_SIZE as libc::c_int + 1 as libc::c_int) as libc::c_ulong,
+			// );
+			static_buffer.write_bytes(0, BUFFER_SIZE + 1);
 			return std::ptr::null_mut::<libc::c_char>();
 		}
-		let mut newline_pos: *const libc::c_char = strchr(temp_buffer.as_mut_ptr(), '\n' as i32);
-		if !newline_pos.is_null() || bytes_read == 0 && *count != 0 as libc::c_int {
+		let temp_buffer_c_str = std::ffi::CStr::from_ptr(temp_buffer.as_ptr());
+		// let mut newline_pos: *const libc::c_char = strchr(temp_buffer.as_mut_ptr(), '\n' as i32);
+		let newline_pos = temp_buffer_c_str.bytes().find(|&c| c == b'\n');
+		// if !newline_pos.is_null() || bytes_read == 0 && *count != 0 as libc::c_int {
+		if newline_pos.is_some() || bytes_read == 0 && *count != 0 as libc::c_int {
 			*return_line = calloc(
 				(*count + 1 as libc::c_int) as libc::c_ulong,
 				::core::mem::size_of::<libc::c_char>() as libc::c_ulong,
@@ -171,7 +177,8 @@ unsafe extern "C" fn read_newln(
 			std::ptr::copy_nonoverlapping(
 				static_buffer,
 				*return_line,
-				strlen(static_buffer as *const libc::c_char) as usize,
+				// strlen(static_buffer as *const libc::c_char) as usize,
+				std::ffi::CStr::from_ptr(static_buffer).count_bytes(),
 			);
 			// memcpy(
 			// 	static_buffer as *mut libc::c_void,
@@ -180,10 +187,11 @@ unsafe extern "C" fn read_newln(
 			// );
 			std::ptr::copy_nonoverlapping(temp_buffer.as_mut_ptr(), static_buffer, BUFFER_SIZE);
 			shift_static_buffer(static_buffer);
-		} else if newline_pos.is_null() && bytes_read != 0 {
+		// } else if newline_pos.is_null() && bytes_read != 0 {
+		} else if newline_pos.is_none() && bytes_read != 0 {
 			*return_line = read_newln(fd, count, static_buffer, return_line);
 		}
-		if *temp_buffer.as_mut_ptr() != 0 {
+		if *temp_buffer.as_ptr() != 0 {
 			*count -= BUFFER_SIZE as libc::c_int;
 			let mut newline: *const libc::c_char = strchr(temp_buffer.as_mut_ptr(), '\n' as i32);
 			if !newline.is_null() {
