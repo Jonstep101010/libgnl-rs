@@ -130,21 +130,20 @@ unsafe fn copy_into_return_line(
 	return_line: *mut i8,
 	temp_buffer: *const i8,
 ) -> *mut i8 {
-	if *temp_buffer != 0 {
+	if *temp_buffer != '\0' as i8 {
 		*count -= BUFFER_SIZE;
 		let newline: *const core::ffi::c_char = strchr(temp_buffer, '\n' as i32);
-		if !newline.is_null() {
-			let len: core::ffi::c_int =
-				(if (newline.offset_from(temp_buffer) as libc::c_long) < BUFFER_SIZE as i64 {
-					newline.offset_from(temp_buffer) as libc::c_long
+		let len = match newline.is_null() {
+			true => BUFFER_SIZE,
+			false => {
+				if (newline.offset_from(temp_buffer)) < BUFFER_SIZE as isize {
+					newline.offset_from(temp_buffer) as usize + 1
 				} else {
-					BUFFER_SIZE as i64
-				}) as core::ffi::c_int;
-			std::ptr::copy_nonoverlapping(temp_buffer, return_line.add(*count), (len + 1) as usize);
-		} else {
-			// copy entire temp_buffer
-			std::ptr::copy_nonoverlapping(temp_buffer, return_line.add(*count), BUFFER_SIZE);
-		}
+					BUFFER_SIZE + 1
+				}
+			}
+		};
+		std::ptr::copy_nonoverlapping(temp_buffer, return_line.add(*count), len);
 	}
 	return_line
 }
