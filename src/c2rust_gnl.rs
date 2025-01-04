@@ -149,56 +149,55 @@ unsafe fn copy_into_return_line(
 #[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
 unsafe fn read_newln(
-	fd: usize,
+	fd: std::os::fd::RawFd,
 	mut count: &mut usize,
 	mut static_buffer: *mut core::ffi::c_char,
 	mut return_line: *mut *mut core::ffi::c_char,
 ) -> *mut core::ffi::c_char {
 	let mut temp_buffer: [core::ffi::c_char; BUFFER_SIZE + 1] = [0; BUFFER_SIZE + 1];
 	let bytes_read: ssize_t = read(
-		fd as core::ffi::c_int,
+		fd,
 		temp_buffer.as_mut_ptr() as *mut libc::c_void,
 		BUFFER_SIZE as size_t,
 	);
+	unsafe fn alloc_newline(
+		count: usize,
+		static_buffer: *mut i8,
+		return_line: *mut *mut i8,
+		temp_buffer: *const i8,
+	) -> Option<*mut i8> {
+		*return_line = calloc(
+			(count + 1) as libc::c_ulong,
+			::core::mem::size_of::<core::ffi::c_char>() as libc::c_ulong,
+		) as *mut i8;
+		if (*return_line).is_null() {
+			return None;
+		}
+		// copy the length of the terminated charptr into return_line (allocated)
+		(*return_line).copy_from_nonoverlapping(
+			static_buffer,
+			libc::strlen(static_buffer as *const i8) as usize,
+		);
+		// copy length - 1 of read buffer into static_buffer
+		static_buffer.copy_from_nonoverlapping(temp_buffer, BUFFER_SIZE);
+		shift_static_buffer(static_buffer);
+		Some(*return_line)
+	}
 	match bytes_read.cmp(&0) {
 		Ordering::Equal if *count != 0 => {
-			*return_line = calloc(
-				(*count + 1) as libc::c_ulong,
-				::core::mem::size_of::<core::ffi::c_char>() as libc::c_ulong,
-			) as *mut core::ffi::c_char;
-			if (*return_line).is_null() {
+			// EOF reached, but there is still data in the buffer
+			if alloc_newline(*count, static_buffer, return_line, temp_buffer.as_ptr()).is_none() {
 				return std::ptr::null_mut::<core::ffi::c_char>();
 			}
-			// copy the length of the terminated charptr into return_line (allocated)
-			(*return_line).copy_from_nonoverlapping(
-				static_buffer,
-				// strlen(static_buffer as *const core::ffi::c_char) as usize,
-				std::ffi::CStr::from_ptr(static_buffer).count_bytes(),
-			);
-			// copy length - 1 of read buffer into static_buffer
-			static_buffer.copy_from_nonoverlapping(temp_buffer.as_ptr(), BUFFER_SIZE);
-			shift_static_buffer(static_buffer);
 		}
 		Ordering::Greater => {
+			// read buffer has data
 			*count += BUFFER_SIZE;
 			let newline_pos = strchr(temp_buffer.as_ptr(), '\n' as i32);
-			if !newline_pos.is_null() {
-				*return_line = calloc(
-					(*count + 1) as libc::c_ulong,
-					::core::mem::size_of::<core::ffi::c_char>() as libc::c_ulong,
-				) as *mut core::ffi::c_char;
-				if (*return_line).is_null() {
-					return std::ptr::null_mut::<core::ffi::c_char>();
-				}
-				// copy the length of the terminated charptr into return_line (allocated)
-				(*return_line).copy_from_nonoverlapping(
-					static_buffer,
-					// strlen(static_buffer as *const core::ffi::c_char) as usize,
-					std::ffi::CStr::from_ptr(static_buffer).count_bytes(),
-				);
-				// copy length - 1 of read buffer into static_buffer
-				static_buffer.copy_from_nonoverlapping(temp_buffer.as_ptr(), BUFFER_SIZE);
-				shift_static_buffer(static_buffer);
+			if !newline_pos.is_null()
+				&& alloc_newline(*count, static_buffer, return_line, temp_buffer.as_ptr()).is_none()
+			{
+				return std::ptr::null_mut::<core::ffi::c_char>();
 			}
 			if newline_pos.is_null() {
 				*return_line = read_newln(fd, count, static_buffer, return_line);
@@ -255,7 +254,7 @@ pub unsafe extern "C" fn get_next_line(fd: std::os::fd::RawFd) -> *mut core::ffi
 				read_buffer((static_buffer[fd]).as_mut_ptr())
 			} else {
 				read_newln(
-					fd,
+					fd as std::os::fd::RawFd,
 					&mut count,
 					(static_buffer[fd]).as_mut_ptr(),
 					&mut return_line,
