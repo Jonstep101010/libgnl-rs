@@ -1,15 +1,12 @@
 #![allow(
-	dead_code,
 	mutable_transmutes,
 	non_camel_case_types,
 	non_snake_case,
-	non_upper_case_globals,
-	unused_assignments,
-	unused_mut
+	non_upper_case_globals
 )]
 #![allow(static_mut_refs)]
 
-use std::{cmp::Ordering, ptr::drop_in_place};
+use std::ptr::drop_in_place;
 include!(concat!(env!("OUT_DIR"), "/buffer_size.rs"));
 
 unsafe extern "C" {
@@ -25,11 +22,10 @@ unsafe extern "C" {
 	// fn strlen(_: *const core::ffi::c_char) -> libc::c_ulong;
 	// fn bzero(_: *mut libc::c_void, _: libc::c_ulong);
 	// only used if building with main
-	fn getcwd(_: *mut core::ffi::c_char, _: size_t) -> *mut core::ffi::c_char;
-	// fn read(_: core::ffi::c_int, _: *mut libc::c_void, _: size_t) -> ssize_t;
-	fn open(_: *const core::ffi::c_char, _: core::ffi::c_int, _: ...) -> core::ffi::c_int;
-	static mut __stderrp: *mut FILE;
-	fn fprintf(_: *mut FILE, _: *const core::ffi::c_char, _: ...) -> core::ffi::c_int;
+	// fn getcwd(_: *mut core::ffi::c_char, _: size_t) -> *mut core::ffi::c_char;
+	// fn open(_: *const core::ffi::c_char, _: core::ffi::c_int, _: ...) -> core::ffi::c_int;
+	// static mut __stderrp: *mut FILE;
+	// fn fprintf(_: *mut FILE, _: *const core::ffi::c_char, _: ...) -> core::ffi::c_int;
 }
 pub type __int64_t = libc::c_longlong;
 pub type __darwin_size_t = libc::c_ulong;
@@ -84,7 +80,7 @@ pub type FILE = __sFILE;
 #[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
 unsafe fn shift_static_buffer(static_buffer: *mut u8) {
-	let mut newline_pos: *const core::ffi::c_char =
+	let newline_pos: *const core::ffi::c_char =
 		strchr(static_buffer as *const core::ffi::c_char, '\n' as i32);
 	if newline_pos.is_null() {
 		static_buffer.write_bytes(b'\0', BUFFER_SIZE);
@@ -101,6 +97,7 @@ unsafe fn shift_static_buffer(static_buffer: *mut u8) {
 			.write_bytes(b'\0', (BUFFER_SIZE).wrapping_sub(shift_len));
 	}
 }
+#[allow(unused_mut)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
 unsafe extern "C" fn terminated_line_copy(
@@ -151,9 +148,9 @@ unsafe fn copy_into_return_line(
 #[unsafe(no_mangle)]
 unsafe fn read_newln(
 	fd: std::os::fd::RawFd,
-	mut count: &mut usize,
-	mut static_buffer: *mut core::ffi::c_char,
-	mut return_line: *mut *mut u8,
+	count: &mut usize,
+	static_buffer: *mut core::ffi::c_char,
+	return_line: *mut *mut u8,
 ) -> *mut u8 {
 	let mut temp_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 	let read_result = nix::unistd::read(fd, temp_buffer.as_mut_slice());
@@ -223,18 +220,16 @@ unsafe fn read_newln(
 
 #[allow(unsafe_op_in_unsafe_fn)]
 #[unsafe(no_mangle)]
-unsafe extern "C" fn read_buffer(
-	mut static_buffer: *mut core::ffi::c_char,
-) -> *mut core::ffi::c_char {
+unsafe extern "C" fn read_buffer(static_buffer: *mut core::ffi::c_char) -> *mut core::ffi::c_char {
 	unsafe {
-		let mut line_staticbuffer: *mut core::ffi::c_char = calloc(
+		let line_staticbuffer: *mut core::ffi::c_char = calloc(
 			(BUFFER_SIZE + 1) as libc::c_ulong,
 			::core::mem::size_of::<core::ffi::c_char>() as libc::c_ulong,
 		) as *mut core::ffi::c_char;
 		if line_staticbuffer.is_null() {
 			return std::ptr::null_mut::<core::ffi::c_char>();
 		}
-		let mut newline_pos: *const core::ffi::c_char =
+		let newline_pos: *const core::ffi::c_char =
 			strchr(static_buffer as *const core::ffi::c_char, '\n' as i32);
 		let len: size_t =
 			(newline_pos.offset_from(static_buffer) as libc::c_long + 1_i64) as size_t;
@@ -272,34 +267,4 @@ pub unsafe extern "C" fn get_next_line(fd: std::os::fd::RawFd) -> *mut core::ffi
 			},
 		)
 	}
-}
-unsafe fn main_0() -> core::ffi::c_int {
-	unsafe {
-		fprintf(
-			__stderrp,
-			b"%s\n\0" as *const u8 as *const core::ffi::c_char,
-			getcwd(
-				std::ptr::null_mut::<core::ffi::c_char>(),
-				0 as core::ffi::c_int as size_t,
-			),
-		);
-		let mut fd: core::ffi::c_int = open(
-			b"./.clang-tidy\0" as *const u8 as *const core::ffi::c_char,
-			0 as core::ffi::c_int,
-		);
-		let mut line: *mut core::ffi::c_char = get_next_line(fd);
-		while !line.is_null() {
-			fprintf(
-				__stderrp,
-				b"%s\n\0" as *const u8 as *const core::ffi::c_char,
-				line,
-			);
-			drop_in_place(line);
-			line = get_next_line(fd);
-		}
-		0
-	}
-}
-pub fn main() {
-	unsafe { ::std::process::exit(main_0() as i32) }
 }
