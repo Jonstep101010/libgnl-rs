@@ -3,8 +3,11 @@
 
 use std::{
 	clone::CloneToUninit,
-	ffi::{CStr, c_char, c_int, c_ulong},
+	ffi::{CStr, CString, c_char, c_int, c_ulong},
+	fmt::format,
+	io::Read,
 	os::fd::RawFd,
+	ptr::slice_from_raw_parts_mut,
 };
 const ALLOC_SIZE: c_ulong = core::mem::size_of::<u8>() as c_ulong;
 include!(concat!(env!("OUT_DIR"), "/buffer_size.rs"));
@@ -69,10 +72,9 @@ unsafe fn read_newln(
 		}
 	}
 	if read_buffer.as_slice()[0] != b'\0' {
-		*count -= BUFFER_SIZE;
-		return_line.unwrap().add(*count).copy_from_nonoverlapping(
-			read_buffer.as_ptr(),
-			match read_buffer.as_slice().iter().position(|&c| c == b'\n') {
+		let cpy_from_read =
+			&read_buffer.as_slice()[..match read_buffer.as_slice().iter().position(|&c| c == b'\n')
+			{
 				None => BUFFER_SIZE,
 				Some(newline_idx) => {
 					if newline_idx < BUFFER_SIZE {
@@ -81,8 +83,14 @@ unsafe fn read_newln(
 						BUFFER_SIZE + 1
 					}
 				}
-			},
-		);
+			}];
+		*count -= BUFFER_SIZE;
+		dbg!(CStr::from_bytes_with_nul_unchecked(cpy_from_read));
+		let slice_ret =
+			slice_from_raw_parts_mut(return_line.unwrap(), *count + cpy_from_read.len());
+		(*slice_ret)[*count..].copy_from_slice(cpy_from_read);
+		dbg!(CStr::from_bytes_with_nul_unchecked(&*slice_ret));
+		*return_line = Some(slice_ret.as_mut_ptr());
 	}
 	*return_line
 }
