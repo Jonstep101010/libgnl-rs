@@ -6,6 +6,7 @@ use std::{
 	ffi::{CStr, c_char, c_int, c_ulong},
 	os::fd::RawFd,
 };
+const ALLOC_SIZE: c_ulong = core::mem::size_of::<u8>() as c_ulong;
 include!(concat!(env!("OUT_DIR"), "/buffer_size.rs"));
 
 unsafe extern "C" {
@@ -32,18 +33,12 @@ unsafe fn alloc_newline(
 	return_line: &mut Option<*mut u8>,
 	read_buffer: *const u8,
 ) -> Option<*mut u8> {
-	let alloc = calloc(
-		(count + 1) as c_ulong,
-		::core::mem::size_of::<c_char>() as c_ulong,
-	) as *mut u8;
+	let alloc = calloc((count + 1) as c_ulong, ALLOC_SIZE) as *mut u8;
 	if alloc.is_null() {
 		return None;
 	}
 	let cstr_static = CStr::from_ptr(static_buffer.as_ptr() as *const i8);
-	// copy the length of the terminated charptr into return_line (allocated)
-	// alloc.copy_from_nonoverlapping(static_buffer.as_ptr(), cstr_static.count_bytes());
 	cstr_static.clone_to_uninit(alloc);
-	// copy length - 1 of read buffer into static_buffer
 	static_buffer
 		.as_mut_ptr()
 		.copy_from_nonoverlapping(read_buffer, BUFFER_SIZE);
@@ -101,10 +96,7 @@ unsafe fn read_newln(
 
 #[unsafe(no_mangle)]
 unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut u8> {
-	let line_staticbuffer: *mut c_char = calloc(
-		(BUFFER_SIZE + 1) as c_ulong,
-		::core::mem::size_of::<c_char>() as c_ulong,
-	) as *mut c_char;
+	let line_staticbuffer = calloc((BUFFER_SIZE + 1) as c_ulong, ALLOC_SIZE) as *mut u8;
 	if line_staticbuffer.is_null() {
 		return None;
 	}
@@ -155,9 +147,8 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 	};
 	if let Some(line) = return_line {
 		let cstr_line = std::ffi::CStr::from_ptr(line as *const i8);
-		let copy_return_line = malloc(
-			(cstr_line.count_bytes() + 1).wrapping_mul(::core::mem::size_of::<u8>()) as c_ulong,
-		) as *mut u8;
+		let copy_return_line =
+			malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE) as *mut u8;
 		if !copy_return_line.is_null() {
 			cstr_line.clone_to_uninit(copy_return_line);
 		}
