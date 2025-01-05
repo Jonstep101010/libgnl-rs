@@ -25,23 +25,18 @@ fn shift_static_buffer(static_buffer: &mut [u8]) {
 	};
 }
 
-#[unsafe(no_mangle)]
-unsafe fn alloc_newline(
+fn alloc_newline(
 	count: usize,
 	static_buffer: &mut [u8; BUFFER_SIZE + 1],
 	return_line: &mut Option<*mut u8>,
-	read_buffer: *const u8,
+	read_buffer: &mut [u8; BUFFER_SIZE],
 ) -> Option<*mut u8> {
 	let mut alloc = vec![0; count + 1];
-	let ptr_alloc = alloc.as_mut_ptr();
-	let cstr_static = CStr::from_ptr(static_buffer.as_ptr() as *const i8);
-	cstr_static.clone_to_uninit(ptr_alloc);
+	static_buffer.as_slice().clone_into(&mut alloc);
+	*return_line = Some(alloc.as_mut_ptr());
 	std::mem::forget(alloc);
-	static_buffer
-		.as_mut_ptr()
-		.copy_from_nonoverlapping(read_buffer, BUFFER_SIZE);
+	static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
 	shift_static_buffer(static_buffer);
-	*return_line = Some(ptr_alloc);
 	*return_line
 }
 
@@ -61,13 +56,13 @@ unsafe fn read_newln(
 	match read_result.unwrap() {
 		0 if *count != 0 => {
 			// EOF reached
-			alloc_newline(*count, static_buffer, return_line, read_buffer.as_ptr())?;
+			alloc_newline(*count, static_buffer, return_line, &mut read_buffer)?;
 		}
 		_ => {
 			// read buffer has data
 			*count += BUFFER_SIZE;
 			if let Some(_newline_pos) = read_buffer.as_slice().iter().position(|&c| c == b'\n') {
-				alloc_newline(*count, static_buffer, return_line, read_buffer.as_ptr())?;
+				alloc_newline(*count, static_buffer, return_line, &mut read_buffer)?;
 			} else {
 				*return_line = read_newln(fd, count, static_buffer, return_line);
 			}
@@ -92,19 +87,18 @@ unsafe fn read_newln(
 	*return_line
 }
 
-#[unsafe(no_mangle)]
-unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut u8> {
+fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut u8> {
 	let mut line_staticbuffer: Vec<u8> = vec![0; BUFFER_SIZE + 1];
+	let newline_idx = static_buffer
+		.as_slice()
+		.iter()
+		.position(|&c| c == b'\n')
+		.expect("newline has to be present in the buffer")
+		+ 1;
+	let static_buffer_slice = &static_buffer.as_slice()[..newline_idx];
 	let ptr = line_staticbuffer.as_mut_ptr();
-	static_buffer.as_ptr().copy_to_nonoverlapping(
-		ptr,
-		static_buffer /* newline_idx */
-			.as_slice()
-			.iter()
-			.position(|&c| c == b'\n')
-			.expect("newline has to be present in the buffer")
-			+ 1,
-	);
+	let destination_slice = unsafe { std::slice::from_raw_parts_mut(ptr, newline_idx) };
+	destination_slice.copy_from_slice(static_buffer_slice);
 	std::mem::forget(line_staticbuffer);
 	shift_static_buffer(static_buffer.as_mut_slice());
 	Some(ptr)
