@@ -11,7 +11,6 @@ include!(concat!(env!("OUT_DIR"), "/buffer_size.rs"));
 
 unsafe extern "C" {
 	fn malloc(_: c_ulong) -> *mut libc::c_void;
-	fn calloc(_: c_ulong, _: c_ulong) -> *mut libc::c_void;
 }
 
 fn shift_static_buffer(static_buffer: &mut [u8]) {
@@ -33,17 +32,16 @@ unsafe fn alloc_newline(
 	return_line: &mut Option<*mut u8>,
 	read_buffer: *const u8,
 ) -> Option<*mut u8> {
-	let alloc = calloc((count + 1) as c_ulong, ALLOC_SIZE) as *mut u8;
-	if alloc.is_null() {
-		return None;
-	}
+	let mut alloc = vec![0; count + 1];
+	let ptr_alloc = alloc.as_mut_ptr();
 	let cstr_static = CStr::from_ptr(static_buffer.as_ptr() as *const i8);
-	cstr_static.clone_to_uninit(alloc);
+	cstr_static.clone_to_uninit(ptr_alloc);
+	std::mem::forget(alloc);
 	static_buffer
 		.as_mut_ptr()
 		.copy_from_nonoverlapping(read_buffer, BUFFER_SIZE);
 	shift_static_buffer(static_buffer);
-	*return_line = Some(alloc);
+	*return_line = Some(ptr_alloc);
 	*return_line
 }
 
@@ -96,12 +94,10 @@ unsafe fn read_newln(
 
 #[unsafe(no_mangle)]
 unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut u8> {
-	let line_staticbuffer = calloc((BUFFER_SIZE + 1) as c_ulong, ALLOC_SIZE) as *mut u8;
-	if line_staticbuffer.is_null() {
-		return None;
-	}
+	let mut line_staticbuffer: Vec<u8> = vec![0; BUFFER_SIZE + 1];
+	let ptr = line_staticbuffer.as_mut_ptr();
 	static_buffer.as_ptr().copy_to_nonoverlapping(
-		line_staticbuffer as *mut u8,
+		ptr,
 		static_buffer /* newline_idx */
 			.as_slice()
 			.iter()
@@ -109,8 +105,9 @@ unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut 
 			.expect("newline has to be present in the buffer")
 			+ 1,
 	);
+	std::mem::forget(line_staticbuffer);
 	shift_static_buffer(static_buffer.as_mut_slice());
-	Some(line_staticbuffer as *mut u8)
+	Some(ptr)
 }
 
 ///
@@ -130,12 +127,10 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 	let fd: usize = fd as usize;
 	static mut static_buffer: [[u8; BUFFER_SIZE + 1]; 10240] = [[0; BUFFER_SIZE + 1]; 10240];
 	let mut count: usize = 0;
-	while static_buffer[fd][count] as c_int != '\0' as i32
-		&& static_buffer[fd][count] as c_int != '\n' as i32
-	{
+	while static_buffer[fd][count] != b'\0' && static_buffer[fd][count] != b'\n' {
 		count += 1;
 	}
-	let return_line = if count <= BUFFER_SIZE && static_buffer[fd][count] as c_int == '\n' as i32 {
+	let return_line = if count <= BUFFER_SIZE && static_buffer[fd][count] == b'\n' {
 		read_buffer(&mut (static_buffer[fd]))
 	} else {
 		read_newln(
