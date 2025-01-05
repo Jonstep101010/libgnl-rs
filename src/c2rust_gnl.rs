@@ -2,17 +2,15 @@
 #![allow(static_mut_refs, unsafe_op_in_unsafe_fn)]
 
 use std::{
-	ffi::{c_char, c_int, c_ulong},
+	clone::CloneToUninit,
+	ffi::{CStr, c_char, c_int, c_ulong},
 	os::fd::RawFd,
-	ptr::drop_in_place,
 };
 include!(concat!(env!("OUT_DIR"), "/buffer_size.rs"));
 
 unsafe extern "C" {
 	fn malloc(_: c_ulong) -> *mut libc::c_void;
 	fn calloc(_: c_ulong, _: c_ulong) -> *mut libc::c_void;
-	// fn free(_: *mut libc::c_void);
-	// fn strchr(_: *const c_char, _: c_int) -> *mut c_char;
 }
 
 fn shift_static_buffer(static_buffer: &mut [u8]) {
@@ -28,6 +26,33 @@ fn shift_static_buffer(static_buffer: &mut [u8]) {
 }
 
 #[unsafe(no_mangle)]
+unsafe fn alloc_newline(
+	count: usize,
+	static_buffer: &mut [u8; BUFFER_SIZE + 1],
+	return_line: &mut Option<*mut u8>,
+	read_buffer: *const u8,
+) -> Option<*mut u8> {
+	let alloc = calloc(
+		(count + 1) as c_ulong,
+		::core::mem::size_of::<c_char>() as c_ulong,
+	) as *mut u8;
+	if alloc.is_null() {
+		return None;
+	}
+	let cstr_static = CStr::from_ptr(static_buffer.as_ptr() as *const i8);
+	// copy the length of the terminated charptr into return_line (allocated)
+	// alloc.copy_from_nonoverlapping(static_buffer.as_ptr(), cstr_static.count_bytes());
+	cstr_static.clone_to_uninit(alloc);
+	// copy length - 1 of read buffer into static_buffer
+	static_buffer
+		.as_mut_ptr()
+		.copy_from_nonoverlapping(read_buffer, BUFFER_SIZE);
+	shift_static_buffer(static_buffer);
+	*return_line = Some(alloc);
+	*return_line
+}
+
+#[unsafe(no_mangle)]
 unsafe fn read_newln(
 	fd: RawFd,
 	count: &mut usize,
@@ -36,32 +61,6 @@ unsafe fn read_newln(
 ) -> Option<*mut u8> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 	let read_result = nix::unistd::read(fd, read_buffer.as_mut_slice());
-	unsafe fn alloc_newline(
-		count: usize,
-		static_buffer: &mut [u8; BUFFER_SIZE + 1],
-		return_line: &mut Option<*mut u8>,
-		read_buffer: *const u8,
-	) -> Option<*mut u8> {
-		let alloc = calloc(
-			(count + 1) as c_ulong,
-			::core::mem::size_of::<c_char>() as c_ulong,
-		) as *mut u8;
-		if alloc.is_null() {
-			return None;
-		}
-		// copy the length of the terminated charptr into return_line (allocated)
-		alloc.copy_from_nonoverlapping(
-			static_buffer.as_ptr(),
-			libc::strlen(static_buffer.as_ptr() as *const i8) as usize,
-		);
-		// copy length - 1 of read buffer into static_buffer
-		static_buffer
-			.as_mut_ptr()
-			.copy_from_nonoverlapping(read_buffer, BUFFER_SIZE);
-		shift_static_buffer(static_buffer);
-		*return_line = Some(alloc);
-		*return_line
-	}
 	if read_result.is_err() || read_result.unwrap() == 0 && *count == 0 {
 		static_buffer.fill(b'\0');
 		return None;
@@ -81,7 +80,7 @@ unsafe fn read_newln(
 			}
 		}
 	}
-	if (*read_buffer.as_ptr()) != b'\0' {
+	if read_buffer.as_slice()[0] != b'\0' {
 		*count -= BUFFER_SIZE;
 		return_line.unwrap().add(*count).copy_from_nonoverlapping(
 			read_buffer.as_ptr(),
@@ -109,12 +108,15 @@ unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut 
 	if line_staticbuffer.is_null() {
 		return None;
 	}
-	let newline_idx = static_buffer
-		.as_slice()
-		.iter()
-		.position(|&c| c == b'\n')
-		.unwrap();
-	line_staticbuffer.copy_from_nonoverlapping(static_buffer.as_ptr() as *mut i8, newline_idx + 1);
+	static_buffer.as_ptr().copy_to_nonoverlapping(
+		line_staticbuffer as *mut u8,
+		static_buffer /* newline_idx */
+			.as_slice()
+			.iter()
+			.position(|&c| c == b'\n')
+			.expect("newline has to be present in the buffer")
+			+ 1,
+	);
 	shift_static_buffer(static_buffer.as_mut_slice());
 	Some(line_staticbuffer as *mut u8)
 }
@@ -124,7 +126,9 @@ unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut 
 ///
 /// # Safety
 /// This function is unsafe because it dereferences raw pointers and calls foreign functions.
+///
 /// The caller must ensure that the `fd` is a valid file descriptor and that the buffer size is greater than 0.
+///
 /// The caller must free the returned pointer when it is no longer needed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
@@ -150,13 +154,13 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 		)
 	};
 	if let Some(line) = return_line {
-		let len = std::ffi::CStr::from_ptr(line as *const i8).count_bytes();
-		let copy_return_line =
-			malloc((len + 1).wrapping_mul(::core::mem::size_of::<u8>()) as c_ulong) as *mut u8;
+		let cstr_line = std::ffi::CStr::from_ptr(line as *const i8);
+		let copy_return_line = malloc(
+			(cstr_line.count_bytes() + 1).wrapping_mul(::core::mem::size_of::<u8>()) as c_ulong,
+		) as *mut u8;
 		if !copy_return_line.is_null() {
-			line.copy_to_nonoverlapping(copy_return_line, len + 1);
+			cstr_line.clone_to_uninit(copy_return_line);
 		}
-		drop_in_place(return_line.unwrap());
 		copy_return_line as *mut c_char
 	} else {
 		std::ptr::null_mut::<c_char>()
