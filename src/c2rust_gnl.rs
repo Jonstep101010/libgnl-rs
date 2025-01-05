@@ -27,24 +27,6 @@ fn shift_static_buffer(static_buffer: &mut [u8]) {
 	};
 }
 
-#[allow(unused_mut)]
-#[unsafe(no_mangle)]
-unsafe fn terminated_line_copy(mut return_line: Option<*mut u8>) -> *mut c_char {
-	if return_line.is_none() {
-		return std::ptr::null_mut::<c_char>();
-	}
-	// let len = strlen(return_line);
-	let len = std::ffi::CStr::from_ptr(return_line.unwrap() as *const i8).count_bytes();
-	let mut copy_return_line =
-		malloc((len + 1).wrapping_mul(::core::mem::size_of::<u8>()) as c_ulong) as *mut u8;
-	if !copy_return_line.is_null() {
-		copy_return_line.copy_from_nonoverlapping(return_line.unwrap(), len + 1);
-	}
-	// free(return_line as *mut libc::c_void);
-	drop_in_place(return_line.unwrap());
-	copy_return_line as *mut c_char
-}
-
 #[unsafe(no_mangle)]
 unsafe fn read_newln(
 	fd: RawFd,
@@ -157,17 +139,26 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 	{
 		count += 1;
 	}
-	let mut return_line: Option<*mut u8> = None;
-	terminated_line_copy(
-		if count <= BUFFER_SIZE && static_buffer[fd][count] as c_int == '\n' as i32 {
-			read_buffer(&mut (static_buffer[fd]))
-		} else {
-			read_newln(
-				fd as RawFd,
-				&mut count,
-				&mut (static_buffer[fd]),
-				&mut return_line,
-			)
-		},
-	)
+	let return_line = if count <= BUFFER_SIZE && static_buffer[fd][count] as c_int == '\n' as i32 {
+		read_buffer(&mut (static_buffer[fd]))
+	} else {
+		read_newln(
+			fd as RawFd,
+			&mut count,
+			&mut (static_buffer[fd]),
+			&mut Option::None,
+		)
+	};
+	if let Some(line) = return_line {
+		let len = std::ffi::CStr::from_ptr(line as *const i8).count_bytes();
+		let copy_return_line =
+			malloc((len + 1).wrapping_mul(::core::mem::size_of::<u8>()) as c_ulong) as *mut u8;
+		if !copy_return_line.is_null() {
+			line.copy_to_nonoverlapping(copy_return_line, len + 1);
+		}
+		drop_in_place(return_line.unwrap());
+		copy_return_line as *mut c_char
+	} else {
+		std::ptr::null_mut::<c_char>()
+	}
 }
