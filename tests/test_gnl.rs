@@ -1,7 +1,5 @@
-// use get_next_line::old_broken::gnl_broken;
 use get_next_line::c2rust_gnl::get_next_line;
 use std::io::Write;
-
 
 ///
 /// running with miri:

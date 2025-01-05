@@ -7,4 +7,3 @@
 
 extern crate libc;
 pub mod c2rust_gnl;
-// pub mod old_broken;
