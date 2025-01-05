@@ -12,27 +12,21 @@ unsafe extern "C" {
 	fn malloc(_: c_ulong) -> *mut libc::c_void;
 	fn calloc(_: c_ulong, _: c_ulong) -> *mut libc::c_void;
 	// fn free(_: *mut libc::c_void);
-	fn strchr(_: *const c_char, _: c_int) -> *mut c_char;
+	// fn strchr(_: *const c_char, _: c_int) -> *mut c_char;
 }
 
-#[unsafe(no_mangle)]
-unsafe fn shift_static_buffer(static_buffer: *mut u8) {
-	let newline_pos: *const c_char = strchr(static_buffer as *const c_char, '\n' as i32);
-	if newline_pos.is_null() {
-		static_buffer.write_bytes(b'\0', BUFFER_SIZE);
-	} else {
-		// get index after '\n'
-		let start = newline_pos
-			.offset_from(static_buffer as *const i8)
-			.wrapping_add(1);
-		let shift_len: usize = (BUFFER_SIZE + 1).wrapping_sub_signed(start);
-		// shift contents from after '\n' to beginning
-		static_buffer.copy_from(static_buffer.offset(start), shift_len);
-		static_buffer
-			.add(shift_len)
-			.write_bytes(b'\0', (BUFFER_SIZE).wrapping_sub(shift_len));
-	}
+fn shift_static_buffer(static_buffer: &mut [u8]) {
+	match static_buffer.iter().position(|&c| c == b'\n') {
+		Some(idx) => {
+			static_buffer.copy_within(idx + 1.., 0);
+			static_buffer[(BUFFER_SIZE - idx)..].fill(b'\0');
+		}
+		None => {
+			static_buffer.fill(b'\0');
+		}
+	};
 }
+
 #[allow(unused_mut)]
 #[unsafe(no_mangle)]
 unsafe fn terminated_line_copy(mut return_line: Option<*mut u8>) -> *mut c_char {
@@ -41,28 +35,28 @@ unsafe fn terminated_line_copy(mut return_line: Option<*mut u8>) -> *mut c_char 
 	}
 	// let len = strlen(return_line);
 	let len = std::ffi::CStr::from_ptr(return_line.unwrap() as *const i8).count_bytes();
-	let mut copy_return_line: *mut c_char =
-		malloc((len + 1).wrapping_mul(::core::mem::size_of::<c_char>()) as c_ulong) as *mut c_char;
+	let mut copy_return_line =
+		malloc((len + 1).wrapping_mul(::core::mem::size_of::<u8>()) as c_ulong) as *mut u8;
 	if !copy_return_line.is_null() {
-		copy_return_line.copy_from_nonoverlapping(return_line.unwrap() as *const i8, len + 1);
+		copy_return_line.copy_from_nonoverlapping(return_line.unwrap(), len + 1);
 	}
 	// free(return_line as *mut libc::c_void);
 	drop_in_place(return_line.unwrap());
-	copy_return_line
+	copy_return_line as *mut c_char
 }
 
 #[unsafe(no_mangle)]
 unsafe fn read_newln(
 	fd: RawFd,
 	count: &mut usize,
-	static_buffer: *mut u8,
+	static_buffer: &mut [u8; BUFFER_SIZE + 1],
 	return_line: &mut Option<*mut u8>,
 ) -> Option<*mut u8> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 	let read_result = nix::unistd::read(fd, read_buffer.as_mut_slice());
 	unsafe fn alloc_newline(
 		count: usize,
-		static_buffer: *mut u8,
+		static_buffer: &mut [u8; BUFFER_SIZE + 1],
 		return_line: &mut Option<*mut u8>,
 		read_buffer: *const u8,
 	) -> Option<*mut u8> {
@@ -75,17 +69,19 @@ unsafe fn read_newln(
 		}
 		// copy the length of the terminated charptr into return_line (allocated)
 		alloc.copy_from_nonoverlapping(
-			static_buffer,
-			libc::strlen(static_buffer as *const i8) as usize,
+			static_buffer.as_ptr(),
+			libc::strlen(static_buffer.as_ptr() as *const i8) as usize,
 		);
 		// copy length - 1 of read buffer into static_buffer
-		static_buffer.copy_from_nonoverlapping(read_buffer, BUFFER_SIZE);
+		static_buffer
+			.as_mut_ptr()
+			.copy_from_nonoverlapping(read_buffer, BUFFER_SIZE);
 		shift_static_buffer(static_buffer);
 		*return_line = Some(alloc);
 		*return_line
 	}
 	if read_result.is_err() || read_result.unwrap() == 0 && *count == 0 {
-		static_buffer.write_bytes(0, BUFFER_SIZE + 1);
+		static_buffer.fill(b'\0');
 		return None;
 	}
 	match read_result.unwrap() {
@@ -137,7 +133,7 @@ unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut 
 		.position(|&c| c == b'\n')
 		.unwrap();
 	line_staticbuffer.copy_from_nonoverlapping(static_buffer.as_ptr() as *mut i8, newline_idx + 1);
-	shift_static_buffer(static_buffer.as_mut_ptr());
+	shift_static_buffer(static_buffer.as_mut_slice());
 	Some(line_staticbuffer as *mut u8)
 }
 
@@ -169,7 +165,7 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 			read_newln(
 				fd as RawFd,
 				&mut count,
-				(static_buffer[fd]).as_mut_ptr(),
+				&mut (static_buffer[fd]),
 				&mut return_line,
 			)
 		},
