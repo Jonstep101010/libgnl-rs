@@ -85,31 +85,29 @@ unsafe fn read_newln(
 				}
 			}];
 		*count -= BUFFER_SIZE;
-		dbg!(CStr::from_bytes_with_nul_unchecked(cpy_from_read));
+		// dbg!(CStr::from_bytes_with_nul_unchecked(cpy_from_read));
 		let slice_ret =
 			slice_from_raw_parts_mut(return_line.unwrap(), *count + cpy_from_read.len());
 		(*slice_ret)[*count..].copy_from_slice(cpy_from_read);
-		dbg!(CStr::from_bytes_with_nul_unchecked(&*slice_ret));
+		// dbg!(CStr::from_bytes_with_nul_unchecked(&*slice_ret));
 		*return_line = Some(slice_ret.as_mut_ptr());
 	}
 	*return_line
 }
 
-fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1]) -> Option<*mut u8> {
-	let mut line_staticbuffer: Vec<u8> = vec![0; BUFFER_SIZE + 1];
-	let newline_idx = static_buffer
-		.as_slice()
-		.iter()
-		.position(|&c| c == b'\n')
-		.expect("newline has to be present in the buffer")
-		+ 1;
-	let static_buffer_slice = &static_buffer.as_slice()[..newline_idx];
-	let ptr = line_staticbuffer.as_mut_ptr();
-	let destination_slice = unsafe { std::slice::from_raw_parts_mut(ptr, newline_idx) };
-	destination_slice.copy_from_slice(static_buffer_slice);
-	std::mem::forget(line_staticbuffer);
+///
+/// read a line from a buffer into heap memory and return a pointer to the heap memory
+/// this will never be called if the buffer is empty: assert!(!&static_buffer.starts_with(&[0; BUFFER_SIZE + 1]));
+unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1], count: usize) -> *mut c_char {
+	let copy_return_line = malloc((count + 2) as c_ulong * ALLOC_SIZE) as *mut u8;
+	if !copy_return_line.is_null() {
+		static_buffer
+			.as_ptr()
+			.copy_to_nonoverlapping(copy_return_line, count + 1);
+		*copy_return_line.add(count + 1) = b'\0';
+	}
 	shift_static_buffer(static_buffer.as_mut_slice());
-	Some(ptr)
+	copy_return_line as *mut c_char
 }
 
 ///
@@ -132,17 +130,15 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 	while static_buffer[fd][count] != b'\0' && static_buffer[fd][count] != b'\n' {
 		count += 1;
 	}
-	let return_line = if count <= BUFFER_SIZE && static_buffer[fd][count] == b'\n' {
-		read_buffer(&mut (static_buffer[fd]))
-	} else {
-		read_newln(
-			fd as RawFd,
-			&mut count,
-			&mut (static_buffer[fd]),
-			&mut Option::None,
-		)
-	};
-	if let Some(line) = return_line {
+	if count <= BUFFER_SIZE && static_buffer[fd][count] == b'\n' {
+		return read_buffer(&mut (static_buffer[fd]), count);
+	}
+	if let Some(line) = read_newln(
+		fd as RawFd,
+		&mut count,
+		&mut (static_buffer[fd]),
+		&mut Option::None,
+	) {
 		let cstr_line = std::ffi::CStr::from_ptr(line as *const i8);
 		let copy_return_line =
 			malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE) as *mut u8;
