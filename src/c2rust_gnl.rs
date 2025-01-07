@@ -25,6 +25,12 @@ unsafe fn read_newln(
 	let read_result = nix::unistd::read(fd, read_buffer.as_mut_slice());
 	#[cfg(debug_assertions)]
 	{
+		if call_number == 0 {
+			eprintln!(
+				"new read cycle\n[{:?}]",
+				std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap()
+			);
+		}
 		match read_result {
 			Err(_) => {
 				eprintln!("read failed!");
@@ -51,19 +57,11 @@ unsafe fn read_newln(
 		}
 	}
 	if read_result.is_err() || read_result.unwrap() == 0 && *count == 0 {
-		#[cfg(debug_assertions)]
-		{
-			if return_line.is_some() {
-				dbg!(std::ffi::CStr::from_ptr(return_line.unwrap() as *const i8));
-			} else {
-				eprintln!("return_line is None");
-				dbg!(std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap());
-			}
-		}
 		static_buffer.fill(b'\0');
 		#[cfg(debug_assertions)]
 		{
-			eprintln!("{}: returning from read_newln\n", call_number);
+			assert!(call_number == 0);
+			eprintln!("-- finished cycle --\n");
 		}
 		return None;
 	}
@@ -147,41 +145,49 @@ unsafe fn read_newln(
 					);
 				}
 			}
-		}
-	}
-	if read_buffer.as_slice()[0] != b'\0' {
-		// non-empty read buffer
-		#[cfg(test)]
-		{
-			eprintln!(
-				"non-empty read (read, line): {:?},{:?}",
-				std::ffi::CStr::from_bytes_with_nul_unchecked(read_buffer.as_slice()),
-				std::ffi::CStr::from_ptr(return_line.unwrap() as *const i8)
-			);
-		}
-		let cpy_from_read =
-			&read_buffer.as_slice()[..match read_buffer.as_slice().iter().position(|&c| c == b'\n')
-			{
-				None => BUFFER_SIZE,
-				Some(newline_idx) => {
-					if newline_idx < BUFFER_SIZE {
-						newline_idx + 1
-					} else {
-						BUFFER_SIZE + 1
-					}
+			if read_buffer.as_slice()[0] != b'\0' {
+				// non-empty read buffer
+				#[cfg(test)]
+				{
+					eprintln!(
+						"non-empty read (read, line): {:?},{:?}",
+						std::ffi::CStr::from_bytes_with_nul_unchecked(read_buffer.as_slice()),
+						std::ffi::CStr::from_ptr(return_line.unwrap() as *const i8)
+					);
 				}
-			}];
-		*count -= BUFFER_SIZE;
-		#[cfg(debug_assertions)]
-		eprintln!(
-			"{}: count-- copying from read buffer: {:?}",
-			call_number,
-			std::ffi::CStr::from_bytes_with_nul_unchecked(cpy_from_read)
-		);
-		let slice_ret =
-			slice_from_raw_parts_mut(return_line.unwrap(), *count + cpy_from_read.len());
-		(*slice_ret)[*count..].copy_from_slice(cpy_from_read);
-		*return_line = Some(slice_ret.as_mut_ptr());
+				let cpy_from_read = &read_buffer.as_slice()[..match read_buffer
+					.as_slice()
+					.iter()
+					.position(|&c| c == b'\n')
+				{
+					None => BUFFER_SIZE,
+					Some(newline_idx) => {
+						if newline_idx < BUFFER_SIZE {
+							newline_idx + 1
+						} else {
+							BUFFER_SIZE + 1
+						}
+					}
+				}];
+				*count -= BUFFER_SIZE;
+				#[cfg(debug_assertions)]
+				eprintln!(
+					"{}: count-- copying from read buffer: {:?}",
+					call_number,
+					std::ffi::CStr::from_bytes_with_nul_unchecked(cpy_from_read)
+				);
+				let slice_ret =
+					slice_from_raw_parts_mut(return_line.unwrap(), *count + cpy_from_read.len());
+				(*slice_ret)[*count..].copy_from_slice(cpy_from_read);
+				#[cfg(debug_assertions)]
+				eprintln!(
+					"{}: return_line w/ copy: {:?}",
+					call_number,
+					std::ffi::CStr::from_bytes_with_nul_unchecked(slice_ret.as_ref_unchecked())
+				);
+				*return_line = Some(slice_ret.as_mut_ptr());
+			}
+		}
 	}
 	#[cfg(debug_assertions)]
 	{
@@ -192,7 +198,7 @@ unsafe fn read_newln(
 			std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap()
 		);
 		if call_number == 0 {
-			eprintln!("returning from read_newln");
+			eprintln!("-- finished cycle --\n");
 			eprintln!();
 		}
 	}
