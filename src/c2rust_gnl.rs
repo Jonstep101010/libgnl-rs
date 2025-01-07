@@ -14,51 +14,123 @@ unsafe extern "C" {
 	fn malloc(_: c_ulong) -> *mut libc::c_void;
 }
 
-fn alloc_newline(
-	count: usize,
-	static_buffer: &mut [u8; BUFFER_SIZE + 1],
-	return_line: &mut Option<*mut u8>,
-	read_buffer: &mut [u8; BUFFER_SIZE],
-) -> Option<*mut u8> {
-	let mut alloc = vec![0; count + 1];
-	static_buffer.as_slice().clone_into(&mut alloc);
-	*return_line = Some(alloc.as_mut_ptr());
-	std::mem::forget(alloc);
-	static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
-	*return_line
-}
-
 unsafe fn read_newln(
 	fd: RawFd,
 	count: &mut usize,
 	static_buffer: &mut [u8; BUFFER_SIZE + 1],
 	return_line: &mut Option<*mut u8>,
+	call_number: usize,
 ) -> Option<*mut u8> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 	let read_result = nix::unistd::read(fd, read_buffer.as_mut_slice());
+	#[cfg(debug_assertions)]
+	{
+		match read_result {
+			Err(_) => {
+				eprintln!("read failed!");
+				match return_line {
+					Some(line) => {
+						dbg!(std::ffi::CStr::from_ptr(*line as *const i8));
+						dbg!(std::ffi::CStr::from_ptr(read_buffer.as_ptr() as *const i8));
+					}
+					None => {
+						eprintln!("return_line is None");
+						dbg!(
+							std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap()
+						);
+						dbg!(std::ffi::CStr::from_ptr(read_buffer.as_ptr() as *const i8));
+					}
+				}
+			}
+			Ok(_) => {
+				eprintln!(
+					"{call_number}: read into buffer: {:?}",
+					std::ffi::CStr::from_ptr(read_buffer.as_ptr() as *const i8)
+				);
+			}
+		}
+	}
 	if read_result.is_err() || read_result.unwrap() == 0 && *count == 0 {
+		#[cfg(debug_assertions)]
+		{
+			if return_line.is_some() {
+				dbg!(std::ffi::CStr::from_ptr(return_line.unwrap() as *const i8));
+			} else {
+				eprintln!("return_line is None");
+				dbg!(std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap());
+			}
+		}
 		static_buffer.fill(b'\0');
 		return None;
 	}
 	match read_result.unwrap() {
 		0 if *count != 0 => {
 			// EOF reached
-			alloc_newline(*count, static_buffer, return_line, &mut read_buffer)?;
+			*return_line = Some({
+				let mut alloc = vec![0; *count + 1];
+				static_buffer.as_slice().clone_into(&mut alloc);
+				// alloc.push_str(std::str::from_utf8_unchecked(static_buffer));
+				let ptr = alloc.as_mut_ptr();
+				#[cfg(debug_assertions)]
+				{
+					dbg!(*count);
+					// dbg!(std::ffi::CStr::from_bytes_until_nul(alloc.as_slice()).unwrap());
+					dbg!(&alloc);
+					eprintln!(
+						"{}: allocating (line (None), read, static): {:?},{:?}",
+						call_number,
+						std::ffi::CStr::from_ptr(read_buffer.as_ptr() as *const i8),
+						std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap()
+					);
+				}
+				std::mem::forget(alloc);
+				static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
+				ptr
+			});
 			static_buffer.fill(b'\0');
 		}
 		_ => {
 			// read buffer has data
 			*count += BUFFER_SIZE;
 			if let Some(newline_pos) = read_buffer.as_slice().iter().position(|&c| c == b'\n') {
-				alloc_newline(*count, static_buffer, return_line, &mut read_buffer)?;
+				*return_line = Some({
+					let mut alloc = vec![0; *count + 1];
+					static_buffer.as_slice().clone_into(&mut alloc);
+					// let mut alloc = String::with_capacity(*count + 1);
+					// alloc.push_str(std::str::from_utf8_unchecked(static_buffer));
+					let ptr = alloc.as_mut_ptr();
+					#[cfg(debug_assertions)]
+					{
+						dbg!(*count);
+						dbg!(&alloc);
+						eprintln!(
+							"{}: allocating (line (None), read, static): {:?},{:?}",
+							call_number,
+							std::ffi::CStr::from_ptr(read_buffer.as_ptr() as *const i8),
+							std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap()
+						);
+					}
+					std::mem::forget(alloc);
+					static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
+					ptr
+				});
 				static_buffer.copy_within(newline_pos + 1.., 0);
 				static_buffer[(BUFFER_SIZE - newline_pos)..].fill(b'\0');
 			} else {
-				*return_line = read_newln(fd, count, static_buffer, return_line);
+				*return_line = read_newln(fd, count, static_buffer, return_line, call_number + 1);
 			}
 		}
 	}
 	if read_buffer.as_slice()[0] != b'\0' {
+		// non-empty read buffer
+		#[cfg(test)]
+		{
+			eprintln!(
+				"non-empty read (read, line): {:?},{:?}",
+				std::ffi::CStr::from_bytes_with_nul_unchecked(read_buffer.as_slice()),
+				std::ffi::CStr::from_ptr(return_line.unwrap() as *const i8)
+			);
+		}
 		let cpy_from_read =
 			&read_buffer.as_slice()[..match read_buffer.as_slice().iter().position(|&c| c == b'\n')
 			{
@@ -72,12 +144,19 @@ unsafe fn read_newln(
 				}
 			}];
 		*count -= BUFFER_SIZE;
-		// dbg!(CStr::from_bytes_with_nul_unchecked(cpy_from_read));
 		let slice_ret =
 			slice_from_raw_parts_mut(return_line.unwrap(), *count + cpy_from_read.len());
 		(*slice_ret)[*count..].copy_from_slice(cpy_from_read);
-		// dbg!(CStr::from_bytes_with_nul_unchecked(&*slice_ret));
 		*return_line = Some(slice_ret.as_mut_ptr());
+	}
+	#[cfg(debug_assertions)]
+	{
+		eprintln!(
+			"{}: returning with (line, _, static): {:?},_,{:?}",
+			call_number,
+			std::ffi::CStr::from_ptr(return_line.unwrap() as *const i8),
+			std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap()
+		);
 	}
 	*return_line
 }
@@ -128,6 +207,7 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 		&mut count,
 		&mut (static_buffer[fd]),
 		&mut Option::None,
+		0,
 	) {
 		let cstr_line = std::ffi::CStr::from_ptr(line as *const i8);
 		let copy_return_line =
