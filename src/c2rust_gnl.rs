@@ -3,9 +3,7 @@
 
 use std::{
 	clone::CloneToUninit,
-	ffi::{CStr, CString, c_char, c_int, c_ulong},
-	fmt::format,
-	io::Read,
+	ffi::{c_char, c_int, c_ulong},
 	os::fd::RawFd,
 	ptr::slice_from_raw_parts_mut,
 };
@@ -14,18 +12,6 @@ include!(concat!(env!("OUT_DIR"), "/buffer_size.rs"));
 
 unsafe extern "C" {
 	fn malloc(_: c_ulong) -> *mut libc::c_void;
-}
-
-fn shift_static_buffer(static_buffer: &mut [u8]) {
-	match static_buffer.iter().position(|&c| c == b'\n') {
-		Some(idx) => {
-			static_buffer.copy_within(idx + 1.., 0);
-			static_buffer[(BUFFER_SIZE - idx)..].fill(b'\0');
-		}
-		None => {
-			static_buffer.fill(b'\0');
-		}
-	};
 }
 
 fn alloc_newline(
@@ -39,11 +25,9 @@ fn alloc_newline(
 	*return_line = Some(alloc.as_mut_ptr());
 	std::mem::forget(alloc);
 	static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
-	shift_static_buffer(static_buffer);
 	*return_line
 }
 
-#[unsafe(no_mangle)]
 unsafe fn read_newln(
 	fd: RawFd,
 	count: &mut usize,
@@ -60,12 +44,15 @@ unsafe fn read_newln(
 		0 if *count != 0 => {
 			// EOF reached
 			alloc_newline(*count, static_buffer, return_line, &mut read_buffer)?;
+			static_buffer.fill(b'\0');
 		}
 		_ => {
 			// read buffer has data
 			*count += BUFFER_SIZE;
-			if let Some(_newline_pos) = read_buffer.as_slice().iter().position(|&c| c == b'\n') {
+			if let Some(newline_pos) = read_buffer.as_slice().iter().position(|&c| c == b'\n') {
 				alloc_newline(*count, static_buffer, return_line, &mut read_buffer)?;
+				static_buffer.copy_within(newline_pos + 1.., 0);
+				static_buffer[(BUFFER_SIZE - newline_pos)..].fill(b'\0');
 			} else {
 				*return_line = read_newln(fd, count, static_buffer, return_line);
 			}
@@ -97,7 +84,7 @@ unsafe fn read_newln(
 
 ///
 /// read a line from a buffer into heap memory and return a pointer to the heap memory
-/// this will never be called if the buffer is empty: assert!(!&static_buffer.starts_with(&[0; BUFFER_SIZE + 1]));
+/// this will never be called if the buffer is empty: `assert!(!&static_buffer.starts_with(&[0; BUFFER_SIZE + 1]));`
 unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1], count: usize) -> *mut c_char {
 	let copy_return_line = malloc((count + 2) as c_ulong * ALLOC_SIZE) as *mut u8;
 	if !copy_return_line.is_null() {
@@ -106,7 +93,10 @@ unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1], count: usize) -
 			.copy_to_nonoverlapping(copy_return_line, count + 1);
 		*copy_return_line.add(count + 1) = b'\0';
 	}
-	shift_static_buffer(static_buffer.as_mut_slice());
+	// we know we have a newline in the buffer, we can just shift it
+	debug_assert_eq!(static_buffer[count], b'\n');
+	static_buffer.copy_within(count + 1.., 0);
+	static_buffer[(BUFFER_SIZE - count)..].fill(b'\0');
 	copy_return_line as *mut c_char
 }
 
