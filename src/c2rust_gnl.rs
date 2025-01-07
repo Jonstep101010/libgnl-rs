@@ -61,6 +61,10 @@ unsafe fn read_newln(
 			}
 		}
 		static_buffer.fill(b'\0');
+		#[cfg(debug_assertions)]
+		{
+			eprintln!("{}: returning from read_newln\n", call_number);
+		}
 		return None;
 	}
 	match read_result.unwrap() {
@@ -69,22 +73,24 @@ unsafe fn read_newln(
 			*return_line = Some({
 				let mut alloc = vec![0; *count + 1];
 				static_buffer.as_slice().clone_into(&mut alloc);
-				// alloc.push_str(std::str::from_utf8_unchecked(static_buffer));
 				let ptr = alloc.as_mut_ptr();
 				#[cfg(debug_assertions)]
 				{
+					eprint!("{call_number}: ");
 					dbg!(*count);
-					// dbg!(std::ffi::CStr::from_bytes_until_nul(alloc.as_slice()).unwrap());
-					dbg!(&alloc);
 					eprintln!(
-						"{}: allocating (line (None), read, static): {:?},{:?}",
+						"{}: EOF allocated (line , read, static): {:?},{:?},{:?}",
 						call_number,
+						return_line.map_or("None", |line| {
+							std::ffi::CStr::from_ptr(line as *const i8)
+								.to_str()
+								.unwrap()
+						}),
 						std::ffi::CStr::from_ptr(read_buffer.as_ptr() as *const i8),
 						std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap()
 					);
 				}
 				std::mem::forget(alloc);
-				static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
 				ptr
 			});
 			static_buffer.fill(b'\0');
@@ -92,25 +98,31 @@ unsafe fn read_newln(
 		_ => {
 			// read buffer has data
 			*count += BUFFER_SIZE;
+			#[cfg(debug_assertions)]
+			eprintln!("{}: count++", call_number);
 			if let Some(newline_pos) = read_buffer.as_slice().iter().position(|&c| c == b'\n') {
 				*return_line = Some({
 					let mut alloc = vec![0; *count + 1];
 					static_buffer.as_slice().clone_into(&mut alloc);
-					// let mut alloc = String::with_capacity(*count + 1);
-					// alloc.push_str(std::str::from_utf8_unchecked(static_buffer));
 					let ptr = alloc.as_mut_ptr();
 					#[cfg(debug_assertions)]
 					{
+						eprint!("{call_number}: ");
 						dbg!(*count);
-						dbg!(&alloc);
 						eprintln!(
-							"{}: allocating (line (None), read, static): {:?},{:?}",
+							"{}: allocating line (line , read, static): {:?},{:?},{:?}",
 							call_number,
+							return_line.map_or("None", |line| {
+								std::ffi::CStr::from_ptr(line as *const i8)
+									.to_str()
+									.unwrap()
+							}),
 							std::ffi::CStr::from_ptr(read_buffer.as_ptr() as *const i8),
 							std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap()
 						);
 					}
 					std::mem::forget(alloc);
+					// only if the read buffer has data & has a newline
 					static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
 					ptr
 				});
@@ -118,6 +130,22 @@ unsafe fn read_newln(
 				static_buffer[(BUFFER_SIZE - newline_pos)..].fill(b'\0');
 			} else {
 				*return_line = read_newln(fd, count, static_buffer, return_line, call_number + 1);
+				#[cfg(debug_assertions)]
+				{
+					eprint!("{call_number}: ");
+					dbg!(*count);
+					eprintln!(
+						"{}: return from recursive (line , read, static): {:?},{:?},{:?}",
+						call_number,
+						return_line.map_or("None", |line| {
+							std::ffi::CStr::from_ptr(line as *const i8)
+								.to_str()
+								.unwrap()
+						}),
+						std::ffi::CStr::from_ptr(read_buffer.as_ptr() as *const i8),
+						std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap()
+					);
+				}
 			}
 		}
 	}
@@ -144,6 +172,12 @@ unsafe fn read_newln(
 				}
 			}];
 		*count -= BUFFER_SIZE;
+		#[cfg(debug_assertions)]
+		eprintln!(
+			"{}: count-- copying from read buffer: {:?}",
+			call_number,
+			std::ffi::CStr::from_bytes_with_nul_unchecked(cpy_from_read)
+		);
 		let slice_ret =
 			slice_from_raw_parts_mut(return_line.unwrap(), *count + cpy_from_read.len());
 		(*slice_ret)[*count..].copy_from_slice(cpy_from_read);
@@ -157,6 +191,10 @@ unsafe fn read_newln(
 			std::ffi::CStr::from_ptr(return_line.unwrap() as *const i8),
 			std::ffi::CStr::from_bytes_until_nul(static_buffer.as_slice()).unwrap()
 		);
+		if call_number == 0 {
+			eprintln!("returning from read_newln");
+			eprintln!();
+		}
 	}
 	*return_line
 }
