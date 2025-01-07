@@ -22,6 +22,9 @@ unsafe fn read_newln(
 	call_number: usize,
 ) -> Option<*mut u8> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
+	// if call_number == 0 {
+
+	// }
 	let read_result = nix::unistd::read(fd, read_buffer.as_mut_slice());
 	#[cfg(debug_assertions)]
 	{
@@ -67,7 +70,7 @@ unsafe fn read_newln(
 	}
 	match read_result.unwrap() {
 		0 if *count != 0 => {
-			// EOF reached
+			// EOF reached (other case already handled)
 			*return_line = Some({
 				let mut alloc = vec![0; *count + 1];
 				static_buffer.as_slice().clone_into(&mut alloc);
@@ -101,6 +104,7 @@ unsafe fn read_newln(
 			if let Some(newline_pos) = read_buffer.as_slice().iter().position(|&c| c == b'\n') {
 				*return_line = Some({
 					let mut alloc = vec![0; *count + 1];
+					// put beginning of line into heap memory
 					static_buffer.as_slice().clone_into(&mut alloc);
 					let ptr = alloc.as_mut_ptr();
 					#[cfg(debug_assertions)]
@@ -170,6 +174,8 @@ unsafe fn read_newln(
 					}
 				}];
 				*count -= BUFFER_SIZE;
+				#[cfg(debug_assertions)]
+				dbg!(*count, cpy_from_read.len());
 				#[cfg(debug_assertions)]
 				eprintln!(
 					"{}: count-- copying from read buffer: {:?}",
