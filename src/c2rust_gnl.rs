@@ -10,6 +10,20 @@ use std::{
 const ALLOC_SIZE: c_ulong = core::mem::size_of::<u8>() as c_ulong;
 include!(concat!(env!("OUT_DIR"), "/buffer_size.rs"));
 
+fn nl_position(buffer: &[u8]) -> Option<usize> {
+	buffer.iter().position(|c| *c == b'\n')
+}
+
+///
+/// get up to nl_pos or buffer_size copy
+/// returns defaults to BUFFER_SIZE, otherwise up to and including newline
+fn get_line_or_bufsize(to_cpy: &[u8]) -> &[u8] {
+	&to_cpy[..match nl_position(&to_cpy[..]) {
+		Some(newline_idx) if newline_idx < BUFFER_SIZE => newline_idx + 1,
+		_ => BUFFER_SIZE,
+	}]
+}
+
 unsafe extern "C" {
 	fn malloc(_: c_ulong) -> *mut libc::c_void;
 }
@@ -22,9 +36,6 @@ unsafe fn read_newln(
 	call_number: usize,
 ) -> Option<*mut u8> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
-	// if call_number == 0 {
-
-	// }
 	let read_result = nix::unistd::read(fd, read_buffer.as_mut_slice());
 	#[cfg(debug_assertions)]
 	{
@@ -69,7 +80,7 @@ unsafe fn read_newln(
 		return None;
 	}
 	match read_result.unwrap() {
-		0 if *count != 0 => {
+		0 => {
 			// EOF reached (other case already handled)
 			*return_line = Some({
 				let mut alloc = vec![0; *count + 1];
@@ -101,7 +112,7 @@ unsafe fn read_newln(
 			*count += BUFFER_SIZE;
 			#[cfg(debug_assertions)]
 			eprintln!("{}: count++", call_number);
-			if let Some(newline_pos) = read_buffer.as_slice().iter().position(|&c| c == b'\n') {
+			if let Some(newline_pos) = nl_position(&read_buffer[..]) {
 				*return_line = Some({
 					let mut alloc = vec![0; *count + 1];
 					// put beginning of line into heap memory
@@ -151,7 +162,7 @@ unsafe fn read_newln(
 			}
 			if read_buffer.as_slice()[0] != b'\0' {
 				// non-empty read buffer
-				#[cfg(test)]
+				#[cfg(debug_assertions)]
 				{
 					eprintln!(
 						"non-empty read (read, line): {:?},{:?}",
@@ -159,20 +170,7 @@ unsafe fn read_newln(
 						std::ffi::CStr::from_ptr(return_line.unwrap() as *const i8)
 					);
 				}
-				let cpy_from_read = &read_buffer.as_slice()[..match read_buffer
-					.as_slice()
-					.iter()
-					.position(|&c| c == b'\n')
-				{
-					None => BUFFER_SIZE,
-					Some(newline_idx) => {
-						if newline_idx < BUFFER_SIZE {
-							newline_idx + 1
-						} else {
-							BUFFER_SIZE + 1
-						}
-					}
-				}];
+				let cpy_from_read = get_line_or_bufsize(&read_buffer[..]);
 				*count -= BUFFER_SIZE;
 				#[cfg(debug_assertions)]
 				dbg!(*count, cpy_from_read.len());
