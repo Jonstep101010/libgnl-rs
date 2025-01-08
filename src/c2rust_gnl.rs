@@ -34,17 +34,8 @@ fn read_newln(
 		static_buffer.fill(b'\0');
 		return None;
 	}
-	if read_result.unwrap() == 0
-	/* EOF reached (static contains data) */
-	{
-		let mut alloc_nul = vec![0; *count + 1];
-		static_buffer.as_slice().clone_into(&mut alloc_nul);
-		return_line = Some(alloc_nul.as_mut_ptr());
-		std::mem::forget(alloc_nul);
-		static_buffer.fill(b'\0');
-	} else
-	/* read buffer has data */
-	{
+	if read_result.unwrap() != 0 {
+		/* read buffer has data */
 		*count += BUFFER_SIZE;
 		if let Some(newline_pos) = nl_position(&read_buffer[..]) {
 			let mut alloc_nln = vec![0; *count + 1];
@@ -54,27 +45,31 @@ fn read_newln(
 			static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
 			static_buffer.copy_within(newline_pos + 1.., 0);
 			static_buffer[(BUFFER_SIZE - newline_pos)..].fill(b'\0');
+			*count -= BUFFER_SIZE;
+			unsafe {
+				read_buffer[..newline_pos + 1]
+					.as_ptr()
+					.copy_to_nonoverlapping(return_line.unwrap().add(*count), newline_pos + 1);
+			}
 		} else
 		/* there is a remainder for the line */
 		{
 			return_line = read_newln(fd, count, static_buffer, return_line);
-		}
-		if read_buffer.as_slice()[0] != b'\0'
-		/*non-empty read buffer*/
-		{
-			let cpy_from_read = {
-				&read_buffer[..match nl_position(&read_buffer[..]) {
-					Some(newline_idx) if newline_idx < BUFFER_SIZE => newline_idx + 1,
-					_ => BUFFER_SIZE,
-				}]
-			};
 			*count -= BUFFER_SIZE;
 			unsafe {
-				cpy_from_read
+				read_buffer[..BUFFER_SIZE]
 					.as_ptr()
-					.copy_to_nonoverlapping(return_line.unwrap().add(*count), cpy_from_read.len());
+					.copy_to_nonoverlapping(return_line.unwrap().add(*count), BUFFER_SIZE);
 			}
 		}
+	} else
+	/* EOF reached (static contains data) */
+	{
+		let mut alloc_nul = vec![0; *count + 1];
+		static_buffer.as_slice().clone_into(&mut alloc_nul);
+		return_line = Some(alloc_nul.as_mut_ptr());
+		std::mem::forget(alloc_nul);
+		static_buffer.fill(b'\0');
 	}
 	return_line
 }
