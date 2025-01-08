@@ -36,16 +36,14 @@ fn read_newln(
 	}
 	if read_result.unwrap() != 0 {
 		/* read buffer has data */
-		*count += BUFFER_SIZE;
 		if let Some(newline_pos) = nl_position(&read_buffer[..]) {
-			let mut alloc_nln = vec![0; *count + 1];
+			let mut alloc_nln = vec![0; *count + BUFFER_SIZE + 1];
 			static_buffer.as_slice().clone_into(&mut alloc_nln);
 			return_line = Some(alloc_nln.as_mut_ptr());
 			std::mem::forget(alloc_nln);
 			static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
 			static_buffer.copy_within(newline_pos + 1.., 0);
 			static_buffer[(BUFFER_SIZE - newline_pos)..].fill(b'\0');
-			*count -= BUFFER_SIZE;
 			unsafe {
 				read_buffer[..newline_pos + 1]
 					.as_ptr()
@@ -54,6 +52,7 @@ fn read_newln(
 		} else
 		/* there is a remainder for the line */
 		{
+			*count += BUFFER_SIZE;
 			return_line = read_newln(fd, count, static_buffer, return_line);
 			*count -= BUFFER_SIZE;
 			unsafe {
@@ -65,6 +64,7 @@ fn read_newln(
 	} else
 	/* EOF reached (static contains data) */
 	{
+		debug_assert!(!static_buffer.contains(&b'\n'));
 		let mut alloc_nul = vec![0; *count + 1];
 		static_buffer.as_slice().clone_into(&mut alloc_nul);
 		return_line = Some(alloc_nul.as_mut_ptr());
