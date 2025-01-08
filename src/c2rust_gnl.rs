@@ -64,12 +64,10 @@ unsafe fn read_newln(
 						_ => BUFFER_SIZE,
 					}]
 				};
-				let (cur_read, len) = (cpy_from_read.as_ptr(), cpy_from_read.len());
 				*count -= BUFFER_SIZE;
-				return_line
-					.unwrap()
-					.add(*count)
-					.copy_from_nonoverlapping(cur_read, len);
+				cpy_from_read
+					.as_ptr()
+					.copy_to_nonoverlapping(return_line.unwrap().add(*count), cpy_from_read.len());
 			}
 		}
 	}
