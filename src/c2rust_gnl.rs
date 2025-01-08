@@ -18,12 +18,15 @@ unsafe extern "C" {
 	fn malloc(_: c_ulong) -> *mut libc::c_void;
 }
 
-unsafe fn read_newln(
+///
+/// allocates on the heap only once EOL/EOF found
+/// uses recursion otherwise
+/// copies bytes once walking back up the stack
+fn read_newln(
 	fd: RawFd,
 	count: &mut usize,
 	static_buffer: &mut [u8; BUFFER_SIZE + 1],
-	return_line: &mut Option<*mut u8>,
-	call_number: usize,
+	mut return_line: Option<*mut u8>,
 ) -> Option<*mut u8> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 	let read_result = nix::unistd::read(fd, read_buffer.as_mut_slice());
@@ -34,25 +37,27 @@ unsafe fn read_newln(
 	if read_result.unwrap() == 0
 	/* EOF reached (static contains data) */
 	{
-		let mut cur_retline = vec![0; *count + 1];
-		static_buffer.as_slice().clone_into(&mut cur_retline);
-		*return_line = Some(cur_retline.as_mut_ptr());
-		std::mem::forget(cur_retline);
+		let mut alloc_nul = vec![0; *count + 1];
+		static_buffer.as_slice().clone_into(&mut alloc_nul);
+		return_line = Some(alloc_nul.as_mut_ptr());
+		std::mem::forget(alloc_nul);
 		static_buffer.fill(b'\0');
 	} else
 	/* read buffer has data */
 	{
 		*count += BUFFER_SIZE;
 		if let Some(newline_pos) = nl_position(&read_buffer[..]) {
-			let mut cur_retline = vec![0; *count + 1];
-			static_buffer.as_slice().clone_into(&mut cur_retline);
-			*return_line = Some(cur_retline.as_mut_ptr());
-			std::mem::forget(cur_retline);
+			let mut alloc_nln = vec![0; *count + 1];
+			static_buffer.as_slice().clone_into(&mut alloc_nln);
+			return_line = Some(alloc_nln.as_mut_ptr());
+			std::mem::forget(alloc_nln);
 			static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
 			static_buffer.copy_within(newline_pos + 1.., 0);
 			static_buffer[(BUFFER_SIZE - newline_pos)..].fill(b'\0');
-		} else {
-			*return_line = read_newln(fd, count, static_buffer, return_line, call_number + 1);
+		} else
+		/* there is a remainder for the line */
+		{
+			return_line = read_newln(fd, count, static_buffer, return_line);
 		}
 		if read_buffer.as_slice()[0] != b'\0'
 		/*non-empty read buffer*/
@@ -64,12 +69,14 @@ unsafe fn read_newln(
 				}]
 			};
 			*count -= BUFFER_SIZE;
-			cpy_from_read
-				.as_ptr()
-				.copy_to_nonoverlapping(return_line.unwrap().add(*count), cpy_from_read.len());
+			unsafe {
+				cpy_from_read
+					.as_ptr()
+					.copy_to_nonoverlapping(return_line.unwrap().add(*count), cpy_from_read.len());
+			}
 		}
 	}
-	*return_line
+	return_line
 }
 
 ///
@@ -117,8 +124,7 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 		fd as RawFd,
 		&mut count,
 		&mut (static_buffer[fd]),
-		&mut Option::None,
-		0,
+		Option::None,
 	) {
 		let cstr_line = std::ffi::CStr::from_ptr(line as *const i8);
 		let copy_return_line =
