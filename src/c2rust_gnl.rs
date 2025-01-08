@@ -31,44 +31,42 @@ unsafe fn read_newln(
 		static_buffer.fill(b'\0');
 		return None;
 	}
-	match read_result.unwrap() {
-		0 => {
-			// EOF reached (other case already handled)
+	if read_result.unwrap() == 0
+	/* EOF reached (static contains data) */
+	{
+		let mut cur_retline = vec![0; *count + 1];
+		static_buffer.as_slice().clone_into(&mut cur_retline);
+		*return_line = Some(cur_retline.as_mut_ptr());
+		std::mem::forget(cur_retline);
+		static_buffer.fill(b'\0');
+	} else
+	/* read buffer has data */
+	{
+		*count += BUFFER_SIZE;
+		if let Some(newline_pos) = nl_position(&read_buffer[..]) {
 			let mut cur_retline = vec![0; *count + 1];
 			static_buffer.as_slice().clone_into(&mut cur_retline);
 			*return_line = Some(cur_retline.as_mut_ptr());
 			std::mem::forget(cur_retline);
-			static_buffer.fill(b'\0');
+			static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
+			static_buffer.copy_within(newline_pos + 1.., 0);
+			static_buffer[(BUFFER_SIZE - newline_pos)..].fill(b'\0');
+		} else {
+			*return_line = read_newln(fd, count, static_buffer, return_line, call_number + 1);
 		}
-		_ => {
-			// read buffer has data
-			*count += BUFFER_SIZE;
-			#[cfg(debug_assertions)]
-			eprintln!("{}: count++", call_number);
-			if let Some(newline_pos) = nl_position(&read_buffer[..]) {
-				let mut cur_retline = vec![0; *count + 1];
-				static_buffer.as_slice().clone_into(&mut cur_retline);
-				*return_line = Some(cur_retline.as_mut_ptr());
-				std::mem::forget(cur_retline);
-				static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
-				static_buffer.copy_within(newline_pos + 1.., 0);
-				static_buffer[(BUFFER_SIZE - newline_pos)..].fill(b'\0');
-			} else {
-				*return_line = read_newln(fd, count, static_buffer, return_line, call_number + 1);
-			}
-			if read_buffer.as_slice()[0] != b'\0' {
-				// non-empty read buffer
-				let cpy_from_read = {
-					&read_buffer[..match nl_position(&read_buffer[..]) {
-						Some(newline_idx) if newline_idx < BUFFER_SIZE => newline_idx + 1,
-						_ => BUFFER_SIZE,
-					}]
-				};
-				*count -= BUFFER_SIZE;
-				cpy_from_read
-					.as_ptr()
-					.copy_to_nonoverlapping(return_line.unwrap().add(*count), cpy_from_read.len());
-			}
+		if read_buffer.as_slice()[0] != b'\0'
+		/*non-empty read buffer*/
+		{
+			let cpy_from_read = {
+				&read_buffer[..match nl_position(&read_buffer[..]) {
+					Some(newline_idx) if newline_idx < BUFFER_SIZE => newline_idx + 1,
+					_ => BUFFER_SIZE,
+				}]
+			};
+			*count -= BUFFER_SIZE;
+			cpy_from_read
+				.as_ptr()
+				.copy_to_nonoverlapping(return_line.unwrap().add(*count), cpy_from_read.len());
 		}
 	}
 	*return_line
