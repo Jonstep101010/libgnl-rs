@@ -4,7 +4,7 @@
 
 use std::{
 	clone::CloneToUninit,
-	ffi::{c_char, c_int, c_ulong},
+	ffi::{c_char, c_ulong},
 	mem::ManuallyDrop,
 	os::fd::RawFd,
 };
@@ -45,12 +45,10 @@ fn read_newln(
 			static_buffer.copy_within(newline_pos + 1.., 0);
 			static_buffer[(BUFFER_SIZE - newline_pos)..].fill(b'\0');
 			unsafe {
-				read_buffer[..newline_pos + 1]
-					.as_ptr()
-					.copy_to_nonoverlapping(
-						return_line.as_mut().unwrap().as_mut_ptr().add(*count),
-						newline_pos + 1,
-					);
+				read_buffer[..=newline_pos].as_ptr().copy_to_nonoverlapping(
+					return_line.as_mut().unwrap().as_mut_ptr().add(*count),
+					newline_pos + 1,
+				);
 			}
 		} else
 		/* there is a remainder for the line */
@@ -81,7 +79,7 @@ fn read_newln(
 /// read a line from a buffer into heap memory and return a pointer to the heap memory
 /// this will never be called if the buffer is empty: `assert!(!&static_buffer.starts_with(&[0; BUFFER_SIZE + 1]));`
 unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1], count: usize) -> *mut c_char {
-	let copy_return_line = malloc((count + 2) as c_ulong * ALLOC_SIZE) as *mut u8;
+	let copy_return_line = malloc((count + 2) as c_ulong * ALLOC_SIZE).cast::<u8>();
 	if !copy_return_line.is_null() {
 		static_buffer
 			.as_ptr()
@@ -92,7 +90,7 @@ unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1], count: usize) -
 	debug_assert_eq!(static_buffer[count], b'\n');
 	static_buffer.copy_within(count + 1.., 0);
 	static_buffer[(BUFFER_SIZE - count)..].fill(b'\0');
-	copy_return_line as *mut c_char
+	copy_return_line.cast::<c_char>()
 }
 
 ///
@@ -104,13 +102,14 @@ unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1], count: usize) -
 /// The caller must ensure that the `fd` is a valid file descriptor and that the buffer size is greater than 0.
 ///
 /// The caller must free the returned pointer when it is no longer needed.
+#[allow(clippy::cast_sign_loss)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
-	if (BUFFER_SIZE as c_int) < 1 as c_int || !(0..=10240).contains(&fd) {
+	static mut static_buffer: [[u8; BUFFER_SIZE + 1]; 10240] = [[0; BUFFER_SIZE + 1]; 10240];
+	if BUFFER_SIZE < 1 || !(0..=10240).contains(&fd) {
 		return std::ptr::null_mut::<c_char>();
 	}
-	let fd: usize = fd as usize;
-	static mut static_buffer: [[u8; BUFFER_SIZE + 1]; 10240] = [[0; BUFFER_SIZE + 1]; 10240];
+	let fd = fd as usize;
 	let mut count: usize = 0;
 	while static_buffer[fd][count] != b'\0' && static_buffer[fd][count] != b'\n' {
 		count += 1;
@@ -124,14 +123,14 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 		&mut (static_buffer[fd]),
 		Option::None,
 	) {
-		let cstr_line = std::ffi::CStr::from_ptr(mandrop_line.as_ptr() as *const i8);
+		let cstr_line = std::ffi::CStr::from_ptr(mandrop_line.as_ptr().cast::<i8>());
 		let copy_return_line =
-			malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE) as *mut u8;
+			malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE).cast::<u8>();
 		if !copy_return_line.is_null() {
 			cstr_line.clone_to_uninit(copy_return_line);
 		}
 		ManuallyDrop::drop(&mut mandrop_line);
-		copy_return_line as *mut c_char
+		copy_return_line.cast::<c_char>()
 	} else {
 		std::ptr::null_mut::<c_char>()
 	}
