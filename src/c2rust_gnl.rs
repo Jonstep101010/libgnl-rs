@@ -65,11 +65,19 @@ fn read_newln(
 	/* EOF reached (static contains data) */
 	{
 		debug_assert!(!static_buffer.contains(&b'\n'));
-		let mut alloc_nul = vec![0; *count + 1];
-		static_buffer.as_slice().clone_into(&mut alloc_nul);
-		return_line = Some(alloc_nul.as_mut_ptr());
-		std::mem::forget(alloc_nul);
-		static_buffer.fill(b'\0');
+		dbg!(*count);
+		unsafe {
+			let alloc_malloc = malloc((*count + 1) as c_ulong * ALLOC_SIZE) as *mut u8;
+			alloc_malloc.write(0);
+			alloc_malloc.copy_from_nonoverlapping(static_buffer.as_ptr(), BUFFER_SIZE + 1);
+			static_buffer.fill(b'\0');
+			return Some(alloc_malloc);
+		}
+		// let mut alloc_nul = vec![0; *count + 1];
+		// static_buffer.as_slice().clone_into(&mut alloc_nul);
+		// return_line = Some(alloc_nul.as_mut_ptr());
+		// std::mem::forget(alloc_nul);
+		// static_buffer.fill(b'\0');
 	}
 	return_line
 }
@@ -122,12 +130,17 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 		Option::None,
 	) {
 		let cstr_line = std::ffi::CStr::from_ptr(line as *const i8);
-		let copy_return_line =
-			malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE) as *mut u8;
-		if !copy_return_line.is_null() {
-			cstr_line.clone_to_uninit(copy_return_line);
+		if cstr_line.to_bytes().contains(&b'\n') {
+			let copy_return_line =
+				malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE) as *mut u8;
+			if !copy_return_line.is_null() {
+				cstr_line.clone_to_uninit(copy_return_line);
+			}
+			copy_return_line as *mut c_char
+		} else {
+			dbg!(cstr_line.count_bytes());
+			line as *mut c_char
 		}
-		copy_return_line as *mut c_char
 	} else {
 		std::ptr::null_mut::<c_char>()
 	}
