@@ -32,7 +32,7 @@ unsafe extern "C" {
 fn read_newln(
 	fd: RawFd,
 	count: usize,
-	static_buffer: &mut [u8; BUFFER_SIZE + 1],
+	static_buffer: &mut [u8; BUFFER_SIZE],
 	mut return_line: Option<ManuallyDrop<Vec<u8>>>,
 ) -> Option<ManuallyDrop<Vec<u8>>> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
@@ -90,7 +90,8 @@ fn read_newln(
 ///
 /// read a line from a buffer into heap memory and return a pointer to the heap memory
 /// this will never be called if the buffer is empty: `assert!(!&static_buffer.starts_with(&[0; BUFFER_SIZE + 1]));`
-unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1], count: usize) -> *mut c_char {
+unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE], count: usize) -> *mut c_char {
+	assert!(!(static_buffer.starts_with(&[0; BUFFER_SIZE])));
 	let copy_return_line = malloc((count + 2) as c_ulong * ALLOC_SIZE).cast::<u8>();
 	if !copy_return_line.is_null() {
 		static_buffer
@@ -114,34 +115,35 @@ unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1], count: usize) -
 /// The caller must ensure that the `fd` is a valid file descriptor and that the buffer size is greater than 0.
 ///
 /// The caller must free the returned pointer when it is no longer needed.
+///
+/// # Panics
+/// this function should never panic. something has to go horribly wrong for the buffer to be fully traversed
 #[allow(clippy::cast_sign_loss)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
-	static mut static_buffer: [[u8; BUFFER_SIZE + 1]; 10240] = [[0; BUFFER_SIZE + 1]; 10240];
+	static mut static_buffer: [[u8; BUFFER_SIZE]; 10240] = [[0; BUFFER_SIZE]; 10240];
 	if BUFFER_SIZE < 1 || !(0..=10240).contains(&fd) {
 		return std::ptr::null_mut::<c_char>();
 	}
-	let fd = fd as usize;
-	let mut count: usize = 0;
-	while static_buffer[fd][count] != b'\0' && static_buffer[fd][count] != b'\n' {
-		count += 1;
-	}
-	if count <= BUFFER_SIZE && static_buffer[fd][count] == b'\n' {
-		assert!(!(&static_buffer[fd][count..].starts_with(&[0; BUFFER_SIZE + 1])));
-		return read_buffer(&mut (static_buffer[fd]), count);
-	}
-	if let Some(mut mandrop_line) =
-		read_newln(fd as RawFd, count, &mut (static_buffer[fd]), Option::None)
-	{
-		let cstr_line = std::ffi::CStr::from_ptr(mandrop_line.as_ptr().cast::<i8>());
-		let copy_return_line =
-			malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE).cast::<u8>();
-		if !copy_return_line.is_null() {
-			cstr_line.clone_to_uninit(copy_return_line);
+	for (count, elem) in static_buffer[fd as usize].iter().enumerate() {
+		if elem == &b'\n' {
+			return read_buffer(&mut (static_buffer[fd as usize]), count);
 		}
-		ManuallyDrop::drop(&mut mandrop_line);
-		copy_return_line.cast::<c_char>()
-	} else {
-		std::ptr::null_mut::<c_char>()
+		if elem == &b'\0' {
+			return match read_newln(fd, count, &mut (static_buffer[fd as usize]), Option::None) {
+				Some(mut mandrop_line) => {
+					let cstr_line = std::ffi::CStr::from_ptr(mandrop_line.as_ptr().cast::<i8>());
+					let copy_return_line =
+						malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE).cast::<u8>();
+					if !copy_return_line.is_null() {
+						cstr_line.clone_to_uninit(copy_return_line);
+					}
+					ManuallyDrop::drop(&mut mandrop_line);
+					copy_return_line.cast::<c_char>()
+				}
+				None => std::ptr::null_mut::<c_char>(),
+			};
+		}
 	}
+	unreachable!()
 }
