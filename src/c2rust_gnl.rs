@@ -42,50 +42,54 @@ fn read_newln(
 	mut return_line: Option<ManuallyDrop<Vec<u8>>>,
 ) -> Option<ManuallyDrop<Vec<u8>>> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
-	let read_result = nix::unistd::read(fd, read_buffer.as_mut_slice());
-	if read_result.is_err() || read_result.unwrap() == 0 && count == 0 {
-		static_buffer.fill(b'\0');
-		None
-	} else if read_result.unwrap() != 0 {
-		/* read buffer has data */
-		if let Some(newline_pos) = nl_position(&read_buffer[..]) {
-			let mut alloc_nln = vec![0; count + BUFFER_SIZE + 1];
-			// if there is non-zero data, we want it at the beginning of the line
-			static_buffer.as_slice().clone_into(&mut alloc_nln);
-			unsafe {
-				// copy remainder of line into static_buffer, overwrite non-overwritten contents after copied
-				read_buffer[newline_pos + 1..].clone_to_uninit(static_buffer.as_mut_ptr());
-				static_buffer[(BUFFER_SIZE - (newline_pos + 1))..].fill(b'\0');
-				read_buffer
-					.as_ptr()
-					.copy_to_nonoverlapping(alloc_nln.as_mut_ptr().add(count), newline_pos + 1);
-			}
-			Some(ManuallyDrop::new(alloc_nln))
-		} else
-		/* there is a remainder for the line */
-		{
-			return_line = read_newln(fd, count + BUFFER_SIZE, static_buffer, return_line);
-			unsafe {
-				read_buffer.as_ptr().copy_to_nonoverlapping(
-					return_line
-						.as_mut()
-						.expect("recursive call to always return some")
-						.as_mut_ptr()
-						.add(count),
-					BUFFER_SIZE,
-				);
-			}
-			return_line
+	match nix::unistd::read(fd, read_buffer.as_mut_slice()) {
+		Err(_) => {
+			static_buffer.fill(b'\0');
+			None
 		}
-	} else
-	/* EOF reached (static contains data other than newline) */
-	{
-		assert_ne!(0, count, "EOF has to be reached with something read");
-		let mut alloc_nul = vec![0; count + 1];
-		static_buffer.as_slice().clone_into(&mut alloc_nul);
-		// clean up since we're done with this fd
-		static_buffer.fill(b'\0');
-		Some(ManuallyDrop::new(alloc_nul))
+		Ok(0) if count == 0 => {
+			static_buffer.fill(b'\0');
+			None
+		}
+		Ok(bytes_read) if bytes_read != 0 => {
+			if let Some(newline_pos) = nl_position(&read_buffer[..]) {
+				let mut alloc_nln = vec![0; count + BUFFER_SIZE + 1];
+				// if there is non-zero data, we want it at the beginning of the line
+				static_buffer.as_slice().clone_into(&mut alloc_nln);
+				unsafe {
+					// copy remainder of line into static_buffer, overwrite non-overwritten contents after copied
+					read_buffer[newline_pos + 1..].clone_to_uninit(static_buffer.as_mut_ptr());
+					static_buffer[(BUFFER_SIZE - (newline_pos + 1))..].fill(b'\0');
+					read_buffer
+						.as_ptr()
+						.copy_to_nonoverlapping(alloc_nln.as_mut_ptr().add(count), newline_pos + 1);
+				}
+				Some(ManuallyDrop::new(alloc_nln))
+			} else
+			/* there is a remainder for the line */
+			{
+				return_line = read_newln(fd, count + BUFFER_SIZE, static_buffer, return_line);
+				unsafe {
+					read_buffer.as_ptr().copy_to_nonoverlapping(
+						return_line
+							.as_mut()
+							.expect("recursive call to always return some")
+							.as_mut_ptr()
+							.add(count),
+						BUFFER_SIZE,
+					);
+				}
+				return_line
+			}
+		}
+		Ok(_) => {
+			assert_ne!(0, count, "EOF has to be reached with something read");
+			let mut alloc_nul = vec![0; count + 1];
+			static_buffer.as_slice().clone_into(&mut alloc_nul);
+			// clean up since we're done with this fd
+			static_buffer.fill(b'\0');
+			Some(ManuallyDrop::new(alloc_nul))
+		}
 	}
 }
 
