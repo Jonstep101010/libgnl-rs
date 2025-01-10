@@ -43,13 +43,13 @@ fn read_newln(
 ) -> Option<ManuallyDrop<Vec<u8>>> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 	match nix::unistd::read(fd, read_buffer.as_mut_slice()) {
-		Err(_) => {
+		Ok(0) if count != 0 => {
+			assert_ne!(0, count, "EOF has to be reached with something read");
+			let mut alloc_nul = vec![0; count + 1];
+			static_buffer.as_slice().clone_into(&mut alloc_nul);
+			// clean up since we're done with this fd
 			static_buffer.fill(b'\0');
-			None
-		}
-		Ok(0) if count == 0 => {
-			static_buffer.fill(b'\0');
-			None
+			Some(ManuallyDrop::new(alloc_nul))
 		}
 		Ok(bytes_read) if bytes_read != 0 => {
 			if let Some(newline_pos) = nl_position(&read_buffer[..]) {
@@ -82,13 +82,9 @@ fn read_newln(
 				return_line
 			}
 		}
-		Ok(_) => {
-			assert_ne!(0, count, "EOF has to be reached with something read");
-			let mut alloc_nul = vec![0; count + 1];
-			static_buffer.as_slice().clone_into(&mut alloc_nul);
-			// clean up since we're done with this fd
+		Ok(_) | Err(_) => {
 			static_buffer.fill(b'\0');
-			Some(ManuallyDrop::new(alloc_nul))
+			None
 		}
 	}
 }
