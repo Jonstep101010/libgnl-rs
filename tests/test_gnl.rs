@@ -28,6 +28,7 @@ fn gnl_basic() {
 			libc::free(line.cast::<libc::c_void>());
 			line = get_next_line(fd);
 		}
+		// assert!(false);
 		let expected = std::fs::read_to_string("tests/test.txt").unwrap();
 		assert_eq!(expected, my_str);
 	}
