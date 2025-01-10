@@ -51,40 +51,37 @@ fn read_newln(
 			static_buffer.fill(b'\0');
 			Some(ManuallyDrop::new(alloc_nul))
 		}
-		Ok(bytes_read) if bytes_read != 0 => {
-			if let Some(newline_pos) = nl_position(&read_buffer[..]) {
-				let mut alloc_nln = vec![0; count + BUFFER_SIZE + 1];
-				// if there is non-zero data, we want it at the beginning of the line
-				static_buffer.as_slice().clone_into(&mut alloc_nln);
-				unsafe {
-					// copy remainder of line into static_buffer, overwrite non-overwritten contents after copied
-					read_buffer[newline_pos + 1..].clone_to_uninit(static_buffer.as_mut_ptr());
-					static_buffer[(BUFFER_SIZE - (newline_pos + 1))..].fill(b'\0');
-					read_buffer
-						.as_ptr()
-						.copy_to_nonoverlapping(alloc_nln.as_mut_ptr().add(count), newline_pos + 1);
-				}
-				Some(ManuallyDrop::new(alloc_nln))
-			} else
-			/* there is a remainder for the line */
-			{
-				return_line = read_newln(fd, count + BUFFER_SIZE, static_buffer, return_line);
-				unsafe {
-					read_buffer.as_ptr().copy_to_nonoverlapping(
-						return_line
-							.as_mut()
-							.expect("recursive call to always return some")
-							.as_mut_ptr()
-							.add(count),
-						BUFFER_SIZE,
-					);
-				}
-				return_line
-			}
-		}
-		Ok(_) | Err(_) => {
+		Ok(0) | Err(_) => {
 			static_buffer.fill(b'\0');
 			None
+		}
+		Ok(_greater_zero) if let Some(newline_pos) = nl_position(&read_buffer[..]) => {
+			let mut alloc_nln = vec![0; count + BUFFER_SIZE + 1];
+			// if there is non-zero data, we want it at the beginning of the line
+			static_buffer.as_slice().clone_into(&mut alloc_nln);
+			unsafe {
+				// copy remainder of line into static_buffer, overwrite non-overwritten contents after copied
+				read_buffer[newline_pos + 1..].clone_to_uninit(static_buffer.as_mut_ptr());
+				static_buffer[(BUFFER_SIZE - (newline_pos + 1))..].fill(b'\0');
+				read_buffer
+					.as_ptr()
+					.copy_to_nonoverlapping(alloc_nln.as_mut_ptr().add(count), newline_pos + 1);
+			}
+			Some(ManuallyDrop::new(alloc_nln))
+		}
+		Ok(_greater_zero) => {
+			return_line = read_newln(fd, count + BUFFER_SIZE, static_buffer, return_line);
+			unsafe {
+				read_buffer.as_ptr().copy_to_nonoverlapping(
+					return_line
+						.as_mut()
+						.expect("recursive call to always return some")
+						.as_mut_ptr()
+						.add(count),
+					BUFFER_SIZE,
+				);
+			}
+			return_line
 		}
 	}
 }
