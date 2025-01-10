@@ -19,66 +19,85 @@ unsafe extern "C" {
 	fn malloc(_: c_ulong) -> *mut libc::c_void;
 }
 
+// vars depending on current stack frame:
+// count += BUFFER_SIZE/ count + (BUFFER_SIZE * num_calls)
+// read_buffer: populated with each call, copied into allocation (nl/EOF) - could push one for each loop iteration
+// read_result -> new one for each call
+// return_line -> None until populated
+
 ///
 /// allocates on the heap only once EOL/EOF found
 /// uses recursion otherwise
 /// copies bytes once walking back up the stack
+///
+/// at the beginning:
+/// ```no-run
+/// assert!(!static_buffer.contains(&b'\n'));
+/// assert!(return_line.is_none());
+/// ```
 fn read_newln(
 	fd: RawFd,
-	count: &mut usize,
-	static_buffer: &mut [u8; BUFFER_SIZE + 1],
+	count: usize,
+	static_buffer: &mut [u8; BUFFER_SIZE],
 	mut return_line: Option<ManuallyDrop<Vec<u8>>>,
 ) -> Option<ManuallyDrop<Vec<u8>>> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
-	let read_result = nix::unistd::read(fd, read_buffer.as_mut_slice());
-	if read_result.is_err() || read_result.unwrap() == 0 && *count == 0 {
-		static_buffer.fill(b'\0');
-		return None;
-	}
-	if read_result.unwrap() != 0 {
-		/* read buffer has data */
-		if let Some(newline_pos) = nl_position(&read_buffer[..]) {
-			let mut alloc_nln = vec![0; *count + BUFFER_SIZE + 1];
-			static_buffer.as_slice().clone_into(&mut alloc_nln);
-			return_line = Some(ManuallyDrop::new(alloc_nln));
-			static_buffer[..BUFFER_SIZE].copy_from_slice(&read_buffer[..]);
-			static_buffer.copy_within(newline_pos + 1.., 0);
-			static_buffer[(BUFFER_SIZE - newline_pos)..].fill(b'\0');
-			unsafe {
-				read_buffer[..=newline_pos].as_ptr().copy_to_nonoverlapping(
-					return_line.as_mut().unwrap().as_mut_ptr().add(*count),
-					newline_pos + 1,
-				);
-			}
-		} else
-		/* there is a remainder for the line */
-		{
-			*count += BUFFER_SIZE;
-			return_line = read_newln(fd, count, static_buffer, return_line);
-			*count -= BUFFER_SIZE;
-			unsafe {
-				read_buffer[..BUFFER_SIZE].as_ptr().copy_to_nonoverlapping(
-					return_line.as_mut().unwrap().as_mut_ptr().add(*count),
-					BUFFER_SIZE,
-				);
+	match nix::unistd::read(fd, read_buffer.as_mut_slice()) {
+		Ok(0) if count != 0 => {
+			assert_ne!(0, count, "EOF has to be reached with something read");
+			let mut alloc_nul = vec![0; count + 1];
+			static_buffer.as_slice().clone_into(&mut alloc_nul);
+			// clean up since we're done with this fd
+			static_buffer.fill(b'\0');
+			Some(ManuallyDrop::new(alloc_nul))
+		}
+		Ok(bytes_read) if bytes_read != 0 => {
+			if let Some(newline_pos) = nl_position(&read_buffer[..]) {
+				let mut alloc_nln = vec![0; count + BUFFER_SIZE + 1];
+				// if there is non-zero data, we want it at the beginning of the line
+				static_buffer.as_slice().clone_into(&mut alloc_nln);
+				unsafe {
+					// copy remainder of line into static_buffer, overwrite non-overwritten contents after copied
+					read_buffer[newline_pos + 1..].clone_to_uninit(static_buffer.as_mut_ptr());
+					static_buffer[(BUFFER_SIZE - (newline_pos + 1))..].fill(b'\0');
+					read_buffer
+						.as_ptr()
+						.copy_to_nonoverlapping(alloc_nln.as_mut_ptr().add(count), newline_pos + 1);
+				}
+				Some(ManuallyDrop::new(alloc_nln))
+			} else
+			/* there is a remainder for the line */
+			{
+				return_line = read_newln(fd, count + BUFFER_SIZE, static_buffer, return_line);
+				unsafe {
+					read_buffer.as_ptr().copy_to_nonoverlapping(
+						return_line
+							.as_mut()
+							.expect("recursive call to always return some")
+							.as_mut_ptr()
+							.add(count),
+						BUFFER_SIZE,
+					);
+				}
+				return_line
 			}
 		}
-	} else
-	/* EOF reached (static contains data) */
-	{
-		assert!(!static_buffer.contains(&b'\n'));
-		let mut alloc_nul = vec![0; *count + 1];
-		static_buffer.as_slice().clone_into(&mut alloc_nul);
-		return_line = Some(ManuallyDrop::new(alloc_nul));
-		static_buffer.fill(b'\0');
+		Ok(_) | Err(_) => {
+			static_buffer.fill(b'\0');
+			None
+		}
 	}
-	return_line
 }
 
 ///
 /// read a line from a buffer into heap memory and return a pointer to the heap memory
-/// this will never be called if the buffer is empty: `assert!(!&static_buffer.starts_with(&[0; BUFFER_SIZE + 1]));`
-unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1], count: usize) -> *mut c_char {
+///
+/// this will never be called if the buffer is empty:
+/// ```no-run
+/// assert!(!&static_buffer.starts_with(&[0; BUFFER_SIZE + 1]));
+/// assert_eq!(static_buffer[count], b'\n');
+/// ```
+unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE], count: usize) -> *mut c_char {
 	let copy_return_line = malloc((count + 2) as c_ulong * ALLOC_SIZE).cast::<u8>();
 	if !copy_return_line.is_null() {
 		static_buffer
@@ -86,8 +105,6 @@ unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1], count: usize) -
 			.copy_to_nonoverlapping(copy_return_line, count + 1);
 		*copy_return_line.add(count + 1) = b'\0';
 	}
-	// we know we have a newline in the buffer, we can just shift it
-	debug_assert_eq!(static_buffer[count], b'\n');
 	static_buffer.copy_within(count + 1.., 0);
 	static_buffer[(BUFFER_SIZE - count)..].fill(b'\0');
 	copy_return_line.cast::<c_char>()
@@ -102,36 +119,35 @@ unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE + 1], count: usize) -
 /// The caller must ensure that the `fd` is a valid file descriptor and that the buffer size is greater than 0.
 ///
 /// The caller must free the returned pointer when it is no longer needed.
+///
+/// # Panics
+/// this function should never panic. something has to go horribly wrong for the buffer to be fully traversed
 #[allow(clippy::cast_sign_loss)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
-	static mut static_buffer: [[u8; BUFFER_SIZE + 1]; 10240] = [[0; BUFFER_SIZE + 1]; 10240];
+	static mut static_buffer: [[u8; BUFFER_SIZE]; 10240] = [[0; BUFFER_SIZE]; 10240];
 	if BUFFER_SIZE < 1 || !(0..=10240).contains(&fd) {
 		return std::ptr::null_mut::<c_char>();
 	}
-	let fd = fd as usize;
-	let mut count: usize = 0;
-	while static_buffer[fd][count] != b'\0' && static_buffer[fd][count] != b'\n' {
-		count += 1;
-	}
-	if count <= BUFFER_SIZE && static_buffer[fd][count] == b'\n' {
-		return read_buffer(&mut (static_buffer[fd]), count);
-	}
-	if let Some(mut mandrop_line) = read_newln(
-		fd as RawFd,
-		&mut count,
-		&mut (static_buffer[fd]),
-		Option::None,
-	) {
-		let cstr_line = std::ffi::CStr::from_ptr(mandrop_line.as_ptr().cast::<i8>());
-		let copy_return_line =
-			malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE).cast::<u8>();
-		if !copy_return_line.is_null() {
-			cstr_line.clone_to_uninit(copy_return_line);
+	for (count, elem) in static_buffer[fd as usize].iter().enumerate() {
+		if elem == &b'\n' {
+			return read_buffer(&mut (static_buffer[fd as usize]), count);
 		}
-		ManuallyDrop::drop(&mut mandrop_line);
-		copy_return_line.cast::<c_char>()
-	} else {
-		std::ptr::null_mut::<c_char>()
+		if elem == &b'\0' {
+			return match read_newln(fd, count, &mut (static_buffer[fd as usize]), Option::None) {
+				Some(mut mandrop_line) => {
+					let cstr_line = std::ffi::CStr::from_ptr(mandrop_line.as_ptr().cast::<i8>());
+					let copy_return_line =
+						malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE).cast::<u8>();
+					if !copy_return_line.is_null() {
+						cstr_line.clone_to_uninit(copy_return_line);
+					}
+					ManuallyDrop::drop(&mut mandrop_line);
+					copy_return_line.cast::<c_char>()
+				}
+				None => std::ptr::null_mut::<c_char>(),
+			};
+		}
 	}
+	unreachable!("the loop should always return!")
 }
