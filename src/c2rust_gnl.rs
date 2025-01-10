@@ -5,7 +5,6 @@
 use std::{
 	clone::CloneToUninit,
 	ffi::{c_char, c_ulong},
-	mem::ManuallyDrop,
 	os::fd::RawFd,
 };
 const ALLOC_SIZE: c_ulong = core::mem::size_of::<u8>() as c_ulong;
@@ -20,10 +19,10 @@ unsafe extern "C" {
 }
 
 // vars depending on current stack frame:
-// count += BUFFER_SIZE/ count + (BUFFER_SIZE * num_calls)
+// buffer_index += BUFFER_SIZE/ buffer_index + (BUFFER_SIZE * num_calls)
 // read_buffer: populated with each call, copied into allocation (nl/EOF) - could push one for each loop iteration
 // read_result -> new one for each call
-// return_line -> None until populated
+// return_line -> None until populated through recursion
 
 ///
 /// allocates on the heap only once EOL/EOF found
@@ -31,60 +30,53 @@ unsafe extern "C" {
 /// copies bytes once walking back up the stack
 ///
 /// at the beginning:
-/// ```no-run
+/// ```no_run
 /// assert!(!static_buffer.contains(&b'\n'));
-/// assert!(return_line.is_none());
 /// ```
 fn read_newln(
 	fd: RawFd,
-	count: usize,
+	buffer_index: usize,
 	static_buffer: &mut [u8; BUFFER_SIZE],
-	mut return_line: Option<ManuallyDrop<Vec<u8>>>,
-) -> Option<ManuallyDrop<Vec<u8>>> {
+) -> Option<Vec<u8>> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 	match nix::unistd::read(fd, read_buffer.as_mut_slice()) {
-		Ok(0) if count != 0 => {
-			assert_ne!(0, count, "EOF has to be reached with something read");
-			let mut alloc_nul = vec![0; count + 1];
+		Ok(0) if buffer_index != 0 => {
+			// EOF has to be reached with something read
+			let mut alloc_nul = vec![0; buffer_index + 1];
 			static_buffer.as_slice().clone_into(&mut alloc_nul);
 			// clean up since we're done with this fd
 			static_buffer.fill(b'\0');
-			Some(ManuallyDrop::new(alloc_nul))
+			Some(alloc_nul)
 		}
-		Ok(bytes_read) if bytes_read != 0 => {
-			if let Some(newline_pos) = nl_position(&read_buffer[..]) {
-				let mut alloc_nln = vec![0; count + BUFFER_SIZE + 1];
-				// if there is non-zero data, we want it at the beginning of the line
-				static_buffer.as_slice().clone_into(&mut alloc_nln);
-				unsafe {
-					// copy remainder of line into static_buffer, overwrite non-overwritten contents after copied
-					read_buffer[newline_pos + 1..].clone_to_uninit(static_buffer.as_mut_ptr());
-					static_buffer[(BUFFER_SIZE - (newline_pos + 1))..].fill(b'\0');
-					read_buffer
-						.as_ptr()
-						.copy_to_nonoverlapping(alloc_nln.as_mut_ptr().add(count), newline_pos + 1);
-				}
-				Some(ManuallyDrop::new(alloc_nln))
-			} else
-			/* there is a remainder for the line */
-			{
-				return_line = read_newln(fd, count + BUFFER_SIZE, static_buffer, return_line);
-				unsafe {
-					read_buffer.as_ptr().copy_to_nonoverlapping(
-						return_line
-							.as_mut()
-							.expect("recursive call to always return some")
-							.as_mut_ptr()
-							.add(count),
-						BUFFER_SIZE,
-					);
-				}
-				return_line
-			}
-		}
-		Ok(_) | Err(_) => {
+		Ok(0) | Err(_) => {
 			static_buffer.fill(b'\0');
 			None
+		}
+		Ok(_greater_zero) if let Some(newline_pos) = nl_position(&read_buffer[..]) => {
+			let mut alloc_nln = vec![0; buffer_index + BUFFER_SIZE + 1];
+			// if there is non-zero data, we want it at the beginning of the line
+			static_buffer.as_slice().clone_into(&mut alloc_nln);
+			unsafe {
+				// copy remainder of line into static_buffer, overwrite non-overwritten contents after copied
+				read_buffer[newline_pos + 1..].clone_to_uninit(static_buffer.as_mut_ptr());
+				static_buffer[(BUFFER_SIZE - (newline_pos + 1))..].fill(b'\0');
+				read_buffer.as_ptr().copy_to_nonoverlapping(
+					alloc_nln.as_mut_ptr().add(buffer_index),
+					newline_pos + 1,
+				);
+			}
+			Some(alloc_nln)
+		}
+		Ok(_greater_zero_more_to_read) => {
+			let mut return_line = read_newln(fd, buffer_index + BUFFER_SIZE, static_buffer)
+				.expect("line is populated by recursion");
+			unsafe {
+				read_buffer.as_ptr().copy_to_nonoverlapping(
+					return_line.as_mut_ptr().add(buffer_index),
+					BUFFER_SIZE,
+				);
+			}
+			Some(return_line)
 		}
 	}
 }
@@ -93,21 +85,21 @@ fn read_newln(
 /// read a line from a buffer into heap memory and return a pointer to the heap memory
 ///
 /// this will never be called if the buffer is empty:
-/// ```no-run
+/// ```no_run
 /// assert!(!&static_buffer.starts_with(&[0; BUFFER_SIZE + 1]));
-/// assert_eq!(static_buffer[count], b'\n');
+/// assert_eq!(static_buffer[buffer_index], b'\n');
 /// ```
-unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE], count: usize) -> *mut c_char {
-	let copy_return_line = malloc((count + 2) as c_ulong * ALLOC_SIZE).cast::<u8>();
-	if !copy_return_line.is_null() {
+unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE], buffer_index: usize) -> *mut c_char {
+	let c_line = malloc((buffer_index + 2) as c_ulong * ALLOC_SIZE).cast::<u8>();
+	if !c_line.is_null() {
 		static_buffer
 			.as_ptr()
-			.copy_to_nonoverlapping(copy_return_line, count + 1);
-		*copy_return_line.add(count + 1) = b'\0';
+			.copy_to_nonoverlapping(c_line, buffer_index + 1);
+		*c_line.add(buffer_index + 1) = b'\0';
 	}
-	static_buffer.copy_within(count + 1.., 0);
-	static_buffer[(BUFFER_SIZE - count)..].fill(b'\0');
-	copy_return_line.cast::<c_char>()
+	static_buffer.copy_within(buffer_index + 1.., 0);
+	static_buffer[(BUFFER_SIZE - buffer_index)..].fill(b'\0');
+	c_line.cast::<c_char>()
 }
 
 ///
@@ -129,21 +121,20 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 	if BUFFER_SIZE < 1 || !(0..=10240).contains(&fd) {
 		return std::ptr::null_mut::<c_char>();
 	}
-	for (count, elem) in static_buffer[fd as usize].iter().enumerate() {
+	for (buffer_index, elem) in static_buffer[fd as usize].iter().enumerate() {
 		if elem == &b'\n' {
-			return read_buffer(&mut (static_buffer[fd as usize]), count);
+			return read_buffer(&mut (static_buffer[fd as usize]), buffer_index);
 		}
 		if elem == &b'\0' {
-			return match read_newln(fd, count, &mut (static_buffer[fd as usize]), Option::None) {
-				Some(mut mandrop_line) => {
-					let cstr_line = std::ffi::CStr::from_ptr(mandrop_line.as_ptr().cast::<i8>());
-					let copy_return_line =
+			return match read_newln(fd, buffer_index, &mut (static_buffer[fd as usize])) {
+				Some(line_vec) => {
+					let cstr_line = std::ffi::CStr::from_ptr(line_vec.as_ptr().cast::<i8>());
+					let c_line =
 						malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE).cast::<u8>();
-					if !copy_return_line.is_null() {
-						cstr_line.clone_to_uninit(copy_return_line);
+					if !c_line.is_null() {
+						cstr_line.clone_to_uninit(c_line);
 					}
-					ManuallyDrop::drop(&mut mandrop_line);
-					copy_return_line.cast::<c_char>()
+					c_line.cast::<c_char>()
 				}
 				None => std::ptr::null_mut::<c_char>(),
 			};
