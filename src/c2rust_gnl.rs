@@ -90,16 +90,16 @@ fn read_newln(
 /// assert_eq!(static_buffer[buffer_index], b'\n');
 /// ```
 unsafe fn read_buffer(static_buffer: &mut [u8; BUFFER_SIZE], buffer_index: usize) -> *mut c_char {
-	let copy_return_line = malloc((buffer_index + 2) as c_ulong * ALLOC_SIZE).cast::<u8>();
-	if !copy_return_line.is_null() {
+	let c_line = malloc((buffer_index + 2) as c_ulong * ALLOC_SIZE).cast::<u8>();
+	if !c_line.is_null() {
 		static_buffer
 			.as_ptr()
-			.copy_to_nonoverlapping(copy_return_line, buffer_index + 1);
-		*copy_return_line.add(buffer_index + 1) = b'\0';
+			.copy_to_nonoverlapping(c_line, buffer_index + 1);
+		*c_line.add(buffer_index + 1) = b'\0';
 	}
 	static_buffer.copy_within(buffer_index + 1.., 0);
 	static_buffer[(BUFFER_SIZE - buffer_index)..].fill(b'\0');
-	copy_return_line.cast::<c_char>()
+	c_line.cast::<c_char>()
 }
 
 ///
@@ -127,14 +127,14 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 		}
 		if elem == &b'\0' {
 			return match read_newln(fd, buffer_index, &mut (static_buffer[fd as usize])) {
-				Some(mandrop_line) => {
-					let cstr_line = std::ffi::CStr::from_ptr(mandrop_line.as_ptr().cast::<i8>());
-					let copy_return_line =
+				Some(line_vec) => {
+					let cstr_line = std::ffi::CStr::from_ptr(line_vec.as_ptr().cast::<i8>());
+					let c_line =
 						malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE).cast::<u8>();
-					if !copy_return_line.is_null() {
-						cstr_line.clone_to_uninit(copy_return_line);
+					if !c_line.is_null() {
+						cstr_line.clone_to_uninit(c_line);
 					}
-					copy_return_line.cast::<c_char>()
+					c_line.cast::<c_char>()
 				}
 				None => std::ptr::null_mut::<c_char>(),
 			};
