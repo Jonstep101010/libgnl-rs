@@ -5,7 +5,6 @@
 use std::{
 	clone::CloneToUninit,
 	ffi::{c_char, c_ulong},
-	mem::ManuallyDrop,
 	os::fd::RawFd,
 };
 const ALLOC_SIZE: c_ulong = core::mem::size_of::<u8>() as c_ulong;
@@ -39,8 +38,8 @@ fn read_newln(
 	fd: RawFd,
 	count: usize,
 	static_buffer: &mut [u8; BUFFER_SIZE],
-	mut return_line: Option<ManuallyDrop<Vec<u8>>>,
-) -> Option<ManuallyDrop<Vec<u8>>> {
+	mut return_line: Option<Vec<u8>>,
+) -> Option<Vec<u8>> {
 	let mut read_buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 	match nix::unistd::read(fd, read_buffer.as_mut_slice()) {
 		Ok(0) if count != 0 => {
@@ -49,7 +48,7 @@ fn read_newln(
 			static_buffer.as_slice().clone_into(&mut alloc_nul);
 			// clean up since we're done with this fd
 			static_buffer.fill(b'\0');
-			Some(ManuallyDrop::new(alloc_nul))
+			Some(alloc_nul)
 		}
 		Ok(0) | Err(_) => {
 			static_buffer.fill(b'\0');
@@ -67,7 +66,7 @@ fn read_newln(
 					.as_ptr()
 					.copy_to_nonoverlapping(alloc_nln.as_mut_ptr().add(count), newline_pos + 1);
 			}
-			Some(ManuallyDrop::new(alloc_nln))
+			Some(alloc_nln)
 		}
 		Ok(_greater_zero) => {
 			return_line = read_newln(fd, count + BUFFER_SIZE, static_buffer, return_line);
@@ -132,14 +131,13 @@ pub unsafe extern "C" fn get_next_line(fd: RawFd) -> *mut c_char {
 		}
 		if elem == &b'\0' {
 			return match read_newln(fd, count, &mut (static_buffer[fd as usize]), Option::None) {
-				Some(mut mandrop_line) => {
+				Some(mandrop_line) => {
 					let cstr_line = std::ffi::CStr::from_ptr(mandrop_line.as_ptr().cast::<i8>());
 					let copy_return_line =
 						malloc((cstr_line.count_bytes() + 1) as c_ulong * ALLOC_SIZE).cast::<u8>();
 					if !copy_return_line.is_null() {
 						cstr_line.clone_to_uninit(copy_return_line);
 					}
-					ManuallyDrop::drop(&mut mandrop_line);
 					copy_return_line.cast::<c_char>()
 				}
 				None => std::ptr::null_mut::<c_char>(),
